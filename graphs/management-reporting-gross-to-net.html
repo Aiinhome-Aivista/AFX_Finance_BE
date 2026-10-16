@@ -18,9 +18,9 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: radial-gradient(circle at 50% 50%, #111827 0%, #0b0f19 100%);
+      background: radial-gradient(circle at 50% 50%, #FFFFFF 0%, #F1F5F9 100%);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      color: #f1f5f9;
+      color: #0F172A;
       user-select: none;
     }
     #network-container {
@@ -37,18 +37,18 @@
       right: 16px;
       display: flex;
       gap: 8px;
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(255, 255, 255, 0.88);
       backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(226, 232, 240, 0.9);
       border-radius: 12px;
       padding: 6px;
       z-index: 20;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.36);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
     }
     .tool-btn {
       background: transparent;
       border: 1px solid transparent;
-      color: #94a3b8;
+      color: #475569;
       border-radius: 8px;
       padding: 6px 10px;
       font-size: 13px;
@@ -60,14 +60,14 @@
       transition: all 0.2s ease;
     }
     .tool-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #ffffff;
-      border-color: rgba(255, 255, 255, 0.15);
+      background: rgba(241, 245, 249, 0.95);
+      color: #0F172A;
+      border-color: #CBD5E1;
     }
     .tool-btn.active {
-      background: rgba(59, 130, 246, 0.2);
-      color: #60a5fa;
-      border-color: rgba(59, 130, 246, 0.4);
+      background: rgba(59, 130, 246, 0.12);
+      color: #2563EB;
+      border-color: rgba(59, 130, 246, 0.35);
     }
     /* Floating Domain Badge */
     .domain-badge {
@@ -77,30 +77,30 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(255, 255, 255, 0.88);
       backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(226, 232, 240, 0.9);
       border-radius: 12px;
       padding: 8px 14px;
       z-index: 20;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.36);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
     }
     .domain-dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
       background: #8A4FD0;
-      box-shadow: 0 0 10px #8A4FD0;
+      box-shadow: 0 0 8px #8A4FD0;
     }
     .domain-title {
       font-size: 13px;
       font-weight: 700;
       letter-spacing: -0.01em;
-      color: #ffffff;
+      color: #0F172A;
     }
     .domain-stats {
       font-size: 11px;
-      color: #94a3b8;
+      color: #64748B;
       margin-left: 4px;
     }
     /* Legend */
@@ -112,20 +112,20 @@
       flex-wrap: wrap;
       gap: 8px;
       max-width: 60%;
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(255, 255, 255, 0.88);
       backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(226, 232, 240, 0.9);
       border-radius: 12px;
       padding: 8px 12px;
       z-index: 20;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.36);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
     }
     .legend-item {
       display: flex;
       align-items: center;
       gap: 6px;
       font-size: 11px;
-      color: #cbd5e1;
+      color: #334155;
       font-weight: 500;
     }
     .legend-color {
@@ -140,13 +140,13 @@
       right: 16px;
       width: 320px;
       max-height: 280px;
-      background: rgba(15, 23, 42, 0.88);
+      background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(226, 232, 240, 0.95);
       border-radius: 14px;
       padding: 14px;
       z-index: 20;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
       display: none;
       flex-direction: column;
       gap: 8px;
@@ -161,13 +161,13 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 8px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid #E2E8F0;
       padding-bottom: 8px;
     }
     .inspector-title {
       font-size: 14px;
       font-weight: 700;
-      color: #ffffff;
+      color: #0F172A;
     }
     .inspector-badge {
       display: inline-block;
@@ -175,24 +175,25 @@
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 20px;
-      background: rgba(255, 255, 255, 0.08);
-      color: #93c5fd;
+      background: #EFF6FF;
+      color: #1D4ED8;
+      border: 1px solid #DBEAFE;
     }
     .inspector-close {
       background: transparent;
       border: none;
-      color: #64748b;
+      color: #94A3B8;
       font-size: 16px;
       cursor: pointer;
       line-height: 1;
     }
     .inspector-close:hover {
-      color: #ffffff;
+      color: #0F172A;
     }
     .inspector-def {
       font-size: 11px;
       line-height: 1.5;
-      color: #94a3b8;
+      color: #475569;
     }
     .inspector-section {
       margin-top: 4px;
@@ -201,7 +202,7 @@
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #64748b;
+      color: #64748B;
       font-weight: 700;
       margin-bottom: 4px;
     }
@@ -211,21 +212,21 @@
       gap: 4px;
     }
     .tag {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
       border-radius: 6px;
       padding: 2px 6px;
       font-size: 10px;
-      color: #cbd5e1;
+      color: #334155;
       font-family: 'JetBrains Mono', monospace;
     }
     .formula-tag {
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.25);
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
       border-radius: 6px;
       padding: 4px 6px;
       font-size: 10px;
-      color: #6ee7b7;
+      color: #065F46;
       font-family: 'JetBrains Mono', monospace;
       width: 100%;
       margin-bottom: 4px;
@@ -239,7 +240,7 @@
   <div class="domain-badge">
     <div class="domain-dot"></div>
     <span class="domain-title">Management Reporting and Gross-to-Net</span>
-    <span class="domain-stats">(10 nodes &middot; 9 edges)</span>
+    <span class="domain-stats">(10 nodes &middot; 16 edges)</span>
   </div>
 
   <!-- Action Controls -->
@@ -284,8 +285,8 @@
   </div>
 
   <script type="text/javascript">
-    const rawNodes = [{"key": "account", "name": "Account / CoA", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Chart-of-accounts dimension with account intelligence (account type, rate type, depreciation logic carried as attributes rather than separate hierarchies) \u00e2\u20ac\u201d the 17-dimension planning reference model's anchor dimension.", "attributes": ["accountCode", "parent", "accountType", "rateType (avg/closing)", "signConvention", "rliMapping", "depreciationIntelligence"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "currency", "name": "Currency / FX", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Transaction, local and group currency with plan/actual/prior-year rate variants \u00e2\u20ac\u201d constant-FX reporting (act@planRate, @pyRate) and organic-growth flags depend on it.", "attributes": ["currencyCode", "rateType", "planRate", "closingRate", "averageRate", "constantFxVariant"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "g2n", "name": "GrossToNetWaterfall", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The cross-domain revenue waterfall (gross \u00e2\u2020\u2019 invoiced \u00e2\u2020\u2019 net) populated by trade terms, promotions and deductions \u00e2\u20ac\u201d finance's contract with the commercial domains; four instances evidenced across clients.", "attributes": ["waterfallStage", "tradeTermType", "onOffInvoice", "accrualBasis"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "granmatrix", "name": "GranularityMatrix", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "Which P&L line legitimately exists at which grain (SKU vs brand vs company) \u00e2\u20ac\u201d the honesty matrix that stops allocation fiction below the line where costs are actually incurred.", "attributes": ["rli\u00c3\u2014grain matrix", "allocationCeiling", "publishRule"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "metricdef", "name": "MetricDefinition", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Governed KPI dictionary: every finance metric carries a verbatim formula, grain, source, owning role and RAG thresholds \u00e2\u20ac\u201d the rationalization benchmark is 400 \u00e2\u2020\u2019 30 metrics.", "attributes": ["metricName", "formula (verbatim)", "uom", "timeGrains[]", "owningRole", "ragThresholds", "leadLagClass", "nonAggregationRule"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "mgmtpack", "name": "ManagementReportingPack", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The MoM/flash reporting cycle: flash results, variance commentary, one-version-of-truth pack from the RLI tree, versioned against plan/PPR/LE \u00e2\u20ac\u201d the CFO pillar 'Bring one version of the truth' operationalized.", "attributes": ["packSections[]", "flashTiming", "commentaryWorkflow", "distribution"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "orgnode", "name": "OrganizationNode", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Legal entity \u00e2\u2020\u2019 business unit \u00e2\u2020\u2019 function \u00e2\u2020\u2019 cost/profit/investment center \u00e2\u2020\u2019 role. Responsibility-center taxonomy (profit / investment / standard-cost / discretionary-expense / revenue) types each node for control purposes; DOA and SOD hang off it.", "attributes": ["entityId", "parent", "centerType", "currency", "doaLevel", "sharedServiceFlag", "consolidationScope"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "pnlrli", "name": "PnLReportingLineItem", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The account roll-up ('RLI' pattern) instantiating gross-to-net down to net income \u00e2\u20ac\u201d evidenced IBP waterfall: volume \u00e2\u2020\u2019 grossTurnover \u00e2\u2020\u2019 \u00e2\u02c6\u2019discounts/rebates/incentives \u00e2\u2020\u2019 netRevenue \u00e2\u2020\u2019 \u00e2\u02c6\u2019VIC \u00e2\u2020\u2019 \u00e2\u02c6\u2019VLC \u00e2\u2020\u2019 MACO (= grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC, verbatim) \u00e2\u2020\u2019 \u00e2\u02c6\u2019ZBB overheads \u00e2\u2020\u2019 EBITDA \u00e2\u2020\u2019 operationalFreeCashFlow by zone.", "attributes": ["rliCode", "parent", "sign", "formulaRefs", "macoFormula (verbatim)", "zoneRollup"], "formulas": ["MACO = grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC"], "origin": "reference", "change_state": "unchanged"}, {"key": "retkpi", "name": "Revenue KPI Cluster", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The reporting formulas riding the waterfall \u00e2\u20ac\u201d ISP% = (invoicedSales \u00e2\u02c6\u2019 M&L) \u00c3\u00b7 invoicedSales; retention = netSales \u00c3\u00b7 grossSales; MPC / statistical-case conversions for volume comparability.", "attributes": ["ispPct (verbatim)", "retentionPct (verbatim)", "mpcPerStatCase", "volumeBridge"], "formulas": ["ISP% = (invoicedSales \u00e2\u02c6\u2019 M&L) \u00c3\u00b7 invoicedSales", "retention = netSales \u00c3\u00b7 grossSales"], "origin": "reference", "change_state": "unchanged"}, {"key": "varanalysis", "name": "VarianceAnalysis", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "Multidimensional variance: vs plan / PPR / prior year, at constant FX (act@planRate, @pyRate), organic vs total, with price/volume/mix decomposition feeding commentary.", "attributes": ["varianceBasis", "fxBasis", "organicSplit", "pvmDecomposition"], "formulas": [], "origin": "reference", "change_state": "unchanged"}];
-    const rawEdges = [{"source": "account", "target": "pnlrli", "label": "rolls up to", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "orgnode", "target": "pnlrli", "label": "profit-center axis", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "currency", "target": "varanalysis", "label": "constant-FX basis", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "metricdef", "target": "retkpi", "label": "defines", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "g2n", "target": "pnlrli", "label": "instantiated by", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "pnlrli", "target": "retkpi", "label": "computes", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "granmatrix", "target": "pnlrli", "label": "constrains grain", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "pnlrli", "target": "mgmtpack", "label": "renders into", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "varanalysis", "target": "mgmtpack", "label": "commentary into", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}];
+    const rawNodes = [{"key": "account", "name": "Account / CoA", "ref_name": "Account / CoA", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Chart-of-accounts dimension with account intelligence (account type, rate type, depreciation logic carried as attributes rather than separate hierarchies) \u00e2\u20ac\u201d the 17-dimension planning reference model's anchor dimension.", "attributes": ["accountCode", "parent", "accountType", "rateType (avg/closing)", "signConvention", "rliMapping", "depreciationIntelligence"], "formulas": [], "evidence": "17-dimension planning blueprint (wind-turbine manufacturer), beverage-major BPC dimension set.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "currency", "name": "Currency / FX", "ref_name": "Currency / FX", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Transaction, local and group currency with plan/actual/prior-year rate variants \u00e2\u20ac\u201d constant-FX reporting (act@planRate, @pyRate) and organic-growth flags depend on it.", "attributes": ["currencyCode", "rateType", "planRate", "closingRate", "averageRate", "constantFxVariant", "reportingCurrency", "exchangeRateDate", "effectiveDate", "sourceCurrency", "targetCurrency", "fxRateSource. These support currency conversion", "financial reporting", "budgeting", "forecasting", "FX variance analysis"], "formulas": [], "evidence": "Canon \u00c2\u00a72.41; consolidation currency-translation vocabulary.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "g2n", "name": "GrossToNetWaterfall", "ref_name": "GrossToNetWaterfall", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The cross-domain revenue waterfall (gross \u00e2\u2020\u2019 invoiced \u00e2\u2020\u2019 net) populated by trade terms, promotions and deductions \u00e2\u20ac\u201d finance's contract with the commercial domains; four instances evidenced across clients.", "attributes": ["waterfallStage", "tradeTermType", "onOffInvoice", "accrualBasis"], "formulas": [], "evidence": "Canon \u00c2\u00a72.22; tobacco-major & brewer trade programs.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "granmatrix", "name": "GranularityMatrix", "ref_name": "GranularityMatrix", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "Which P&L line legitimately exists at which grain (SKU vs brand vs company) \u00e2\u20ac\u201d the honesty matrix that stops allocation fiction below the line where costs are actually incurred.", "attributes": ["rli\u00c3\u2014grain matrix", "allocationCeiling", "publishRule"], "formulas": [], "evidence": "HPC-major UK granularity matrix (evidenced verbatim).", "notes": "Client rule: For \u201cGranularityMatrix\u201d, the reference uses: no fixed formula. Do you calculate or govern it the same way? Share your own formula or rule if it differs.", "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "metricdef", "name": "MetricDefinition", "ref_name": "MetricDefinition", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Governed KPI dictionary: every finance metric carries a verbatim formula, grain, source, owning role and RAG thresholds \u00e2\u20ac\u201d the rationalization benchmark is 400 \u00e2\u2020\u2019 30 metrics.", "attributes": ["metricName", "formula (verbatim)", "uom", "timeGrains[]", "owningRole", "ragThresholds", "leadLagClass", "nonAggregationRule"], "formulas": [], "evidence": "Nutrition-group metric lists; canon \u00c2\u00a72.44 metric rationalization.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "mgmtpack", "name": "ManagementReportingPack", "ref_name": "ManagementReportingPack", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The MoM/flash reporting cycle: flash results, variance commentary, one-version-of-truth pack from the RLI tree, versioned against plan/PPR/LE \u00e2\u20ac\u201d the CFO pillar 'Bring one version of the truth' operationalized.", "attributes": ["packSections[]", "flashTiming", "commentaryWorkflow", "distribution", "reportingPeriod", "reportFrequency", "reportOwner", "approvalStatus", "actualAmount", "budgetAmount", "forecastAmount", "varianceAmount", "variancePercentage", "currency", "lastUpdatedDate. These support financial reporting", "KPI monitoring", "variance analysis", "management commentary"], "formulas": [], "evidence": "Finance MoM; FPM Finsight dashboards.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "orgnode", "name": "OrganizationNode", "ref_name": "OrganizationNode", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Legal entity \u00e2\u2020\u2019 business unit \u00e2\u2020\u2019 function \u00e2\u2020\u2019 cost/profit/investment center \u00e2\u2020\u2019 role. Responsibility-center taxonomy (profit / investment / standard-cost / discretionary-expense / revenue) types each node for control purposes; DOA and SOD hang off it.", "attributes": ["entityId", "parent", "centerType", "currency", "doaLevel", "sharedServiceFlag", "consolidationScope"], "formulas": [], "evidence": "Canon \u00c2\u00a72.0/\u00c2\u00a72.44/\u00c2\u00a72.54; consolidation scoping decks.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "pnlrli", "name": "PnLReportingLineItem", "ref_name": "PnLReportingLineItem", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The account roll-up ('RLI' pattern) instantiating gross-to-net down to net income \u00e2\u20ac\u201d evidenced IBP waterfall: volume \u00e2\u2020\u2019 grossTurnover \u00e2\u2020\u2019 \u00e2\u02c6\u2019discounts/rebates/incentives \u00e2\u2020\u2019 netRevenue \u00e2\u2020\u2019 \u00e2\u02c6\u2019VIC \u00e2\u2020\u2019 \u00e2\u02c6\u2019VLC \u00e2\u2020\u2019 MACO (= grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC, verbatim) \u00e2\u2020\u2019 \u00e2\u02c6\u2019ZBB overheads \u00e2\u2020\u2019 EBITDA \u00e2\u2020\u2019 operationalFreeCashFlow by zone.", "attributes": ["rliCode", "parent", "sign", "formulaRefs", "macoFormula (verbatim)", "zoneRollup"], "formulas": ["MACO = grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC"], "evidence": "PNL Report by RU and PC1 (beverage-major BPC); global-brewer IBP.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "retkpi", "name": "Revenue KPI Cluster", "ref_name": "Revenue KPI Cluster", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "The reporting formulas riding the waterfall \u00e2\u20ac\u201d ISP% = (invoicedSales \u00e2\u02c6\u2019 M&L) \u00c3\u00b7 invoicedSales; retention = netSales \u00c3\u00b7 grossSales; MPC / statistical-case conversions for volume comparability.", "attributes": ["ispPct (verbatim)", "retentionPct (verbatim)", "mpcPerStatCase", "volumeBridge"], "formulas": ["ISP% = (invoicedSales \u00e2\u02c6\u2019 M&L) \u00c3\u00b7 invoicedSales", "retention = netSales \u00c3\u00b7 grossSales"], "evidence": "HPC-major consolidated P&L; nutrition-group metric lists.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}, {"key": "varanalysis", "name": "VarianceAnalysis", "ref_name": "VarianceAnalysis", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "core", "definition": "Multidimensional variance: vs plan / PPR / prior year, at constant FX (act@planRate, @pyRate), organic vs total, with price/volume/mix decomposition feeding commentary.", "attributes": ["varianceBasis", "fxBasis", "organicSplit", "pvmDecomposition"], "formulas": [], "evidence": "Canon \u00c2\u00a72.41; HPC-major reporting conventions.", "notes": null, "origin": "reference", "change_state": "unchanged", "added_in_version": 0}];
+    const rawEdges = [{"source": "account", "target": "pnlrli", "label": "rolls up to", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "orgnode", "target": "pnlrli", "label": "profit-center axis", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "currency", "target": "varanalysis", "label": "constant-FX basis", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "metricdef", "target": "retkpi", "label": "defines", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "g2n", "target": "pnlrli", "label": "instantiated by", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "pnlrli", "target": "retkpi", "label": "computes", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "granmatrix", "target": "pnlrli", "label": "constrains grain", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "pnlrli", "target": "mgmtpack", "label": "renders into", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "varanalysis", "target": "mgmtpack", "label": "commentary into", "origin": "reference", "change_state": "unchanged", "added_in_version": 0, "cross_domain": false}, {"source": "g2n", "target": "retkpi", "label": "relates to", "origin": "user", "change_state": "unchanged", "added_in_version": 2, "cross_domain": false}, {"source": "g2n", "target": "account", "label": "relates to", "origin": "user", "change_state": "unchanged", "added_in_version": 2, "cross_domain": false}, {"source": "g2n", "target": "orgnode", "label": "relates to", "origin": "user", "change_state": "unchanged", "added_in_version": 2, "cross_domain": false}, {"source": "g2n", "target": "currency", "label": "relates to", "origin": "user", "change_state": "unchanged", "added_in_version": 2, "cross_domain": false}, {"source": "orgnode", "target": "account", "label": "relates to", "origin": "user", "change_state": "added", "added_in_version": 5, "cross_domain": false}, {"source": "orgnode", "target": "retkpi", "label": "relates to", "origin": "user", "change_state": "added", "added_in_version": 5, "cross_domain": false}, {"source": "orgnode", "target": "mgmtpack", "label": "relates to", "origin": "user", "change_state": "added", "added_in_version": 5, "cross_domain": false}];
 
     // Build Legend
     const legendEl = document.getElementById('legend');
@@ -302,7 +303,7 @@
       legendEl.appendChild(item);
     });
 
-    // Transform Nodes for Vis.js
+    // Transform Nodes for Vis.js (White / Light Theme)
     const visNodes = rawNodes.map(n => {
       const nodeColor = n.color || '#8A4FD0';
       return {
@@ -310,19 +311,19 @@
         label: n.name,
         group: n.group_name,
         color: {
-          background: '#1e293b',
+          background: '#FFFFFF',
           border: nodeColor,
           highlight: {
-            background: nodeColor,
-            border: '#ffffff'
+            background: '#F0F9FF',
+            border: nodeColor
           },
           hover: {
-            background: '#334155',
-            border: '#ffffff'
+            background: '#F8FAFC',
+            border: nodeColor
           }
         },
         font: {
-          color: '#f8fafc',
+          color: '#0F172A',
           size: 13,
           face: 'Inter, sans-serif',
           bold: true
@@ -333,16 +334,16 @@
         borderWidthSelected: 3,
         shadow: {
           enabled: true,
-          color: 'rgba(0, 0, 0, 0.4)',
-          size: 10,
-          x: 2,
-          y: 4
+          color: 'rgba(0, 0, 0, 0.08)',
+          size: 8,
+          x: 1,
+          y: 3
         },
         raw: n
       };
     });
 
-    // Transform Edges for Vis.js
+    // Transform Edges for Vis.js (White / Light Theme)
     const visEdges = rawEdges.map((e, idx) => {
       return {
         id: 'e_' + idx,
@@ -356,16 +357,16 @@
           }
         },
         color: {
-          color: '#64748b',
-          highlight: '#38bdf8',
-          hover: '#94a3b8'
+          color: '#94A3B8',
+          highlight: '#2563EB',
+          hover: '#64748B'
         },
         font: {
-          color: '#94a3b8',
+          color: '#475569',
           size: 11,
           face: 'Inter, sans-serif',
           align: 'middle',
-          background: '#0b0f19'
+          background: 'rgba(255, 255, 255, 0.95)'
         },
         smooth: {
           type: 'curvedCW',

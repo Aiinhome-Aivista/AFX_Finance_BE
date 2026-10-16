@@ -49,8 +49,26 @@ def domain(slug):
 @bp.get("/domains/<slug>/graph")
 @auth_required
 def domain_graph(slug):
-    """KG0 for one domain: read-only, built from that domain's own core nodes + ontology-supported shared/neighbour nodes."""
-    res = ReferenceService(get_db()).domain_graph(slug, neighbours=_flag("neighbours", True))
+    """Domain graph: returns latest customized working graph if available, else KG0 baseline."""
+    db = get_db()
+    ref = ReferenceService(db)
+    d = ref.domain(slug)
+    wf = WorkflowService(db).get_wf(g.user_id, d, required=False)
+    
+    res = None
+    if wf:
+        from ..services.graph_service import GraphService
+        gs = GraphService(db)
+        try:
+            latest = gs.graphs.latest(g.user_id, wf["id"])
+            if latest:
+                res = gs.graph(g.user_id, wf, d, latest["version_number"])
+        except Exception:
+            res = None
+
+    if not res:
+        res = ref.domain_graph(slug, neighbours=_flag("neighbours", True))
+
     try:
         from flask import current_app
         from ..services.html_graph_service import HTMLGraphService
