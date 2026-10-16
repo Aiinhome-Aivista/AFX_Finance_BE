@@ -25,6 +25,9 @@ class ReferenceRepository:
 
     def domain_by_slug(self, slug):
         r = self.db.one("SELECT * FROM domains WHERE slug=%s", (slug,))
+        if not r and slug:
+            normalized = str(slug).strip().replace(" ", "-").replace("%20", "-").lower()
+            r = self.db.one("SELECT * FROM domains WHERE slug=%s", (normalized,))
         if r:
             r["knowledge"] = jload(r["knowledge"], {})
         return r

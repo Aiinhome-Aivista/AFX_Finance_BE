@@ -27,10 +27,14 @@ def domain_ctx(slug):
 
 
 def domain_wf(slug):
-    """Same, but the user must already have started the workflow for this domain."""
+    """(domain row, workflow row) for the authenticated user, auto-starting if not started."""
     db = get_db()
     domain = ReferenceService(db).domain(slug)
-    wf = WorkflowService(db).get_wf(g.user_id, domain, required=True)
+    wfs = WorkflowService(db)
+    wf = wfs.get_wf(g.user_id, domain, required=False)
+    if not wf:
+        wfs.start(g.user_id, domain)
+        wf = wfs.get_wf(g.user_id, domain, required=True)
     return domain, wf
 
 

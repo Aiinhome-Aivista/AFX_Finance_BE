@@ -8,7 +8,8 @@ class AnthropicProvider(LLMProvider):
     name = "anthropic"
 
     def __init__(self, api_key, model, timeout, base_url=None):
-        self.key, self.model, self.timeout = api_key, model or "claude-sonnet-4-5", timeout
+        self.key, self.model = api_key, model
+        self.timeout = int(timeout) if timeout else 120
         self.url = (base_url or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
 
     def complete(self, system, user, max_tokens=1200):
@@ -32,7 +33,8 @@ class OpenAIProvider(LLMProvider):
     name = "openai"
 
     def __init__(self, api_key, model, timeout, base_url=None):
-        self.key, self.model, self.timeout = api_key, model or "gpt-4o-mini", timeout
+        self.key, self.model = api_key, model
+        self.timeout = int(timeout) if timeout else 120
         self.url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
 
     def complete(self, system, user, max_tokens=1200):
@@ -58,8 +60,8 @@ class OllamaProvider(LLMProvider):
     name = "ollama"
 
     def __init__(self, model, timeout, base_url=None):
-        self.model = model or "mistral:latest"
-        self.timeout = timeout
+        self.model = model
+        self.timeout = int(timeout) if timeout else 180
         url = (base_url or "http://localhost:11434").rstrip("/")
         if not url.endswith("/api/chat"):
             url = f"{url}/api/chat"

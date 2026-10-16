@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Working Capital and Treasury — Knowledge Graph</title>
+  <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 50%, #FFFFFF 0%, #F1F5F9 100%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #0F172A;
+      user-select: none;
+    }
+    #network-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* Top Toolbar */
+    .toolbar {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 6px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .tool-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #475569;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .tool-btn:hover {
+      background: rgba(241, 245, 249, 0.95);
+      color: #0F172A;
+      border-color: #CBD5E1;
+    }
+    .tool-btn.active {
+      background: rgba(59, 130, 246, 0.12);
+      color: #2563EB;
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+    /* Floating Domain Badge */
+    .domain-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 8px 14px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .domain-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #2FA096;
+      box-shadow: 0 0 8px #2FA096;
+    }
+    .domain-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #0F172A;
+    }
+    .domain-stats {
+      font-size: 11px;
+      color: #64748B;
+      margin-left: 4px;
+    }
+    /* Legend */
+    .legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: 60%;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 8px 12px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 500;
+    }
+    .legend-color {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    /* Node Info Overlay */
+    .inspector {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      width: 320px;
+      max-height: 280px;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 14px;
+      padding: 14px;
+      z-index: 20;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      transition: opacity 0.2s ease;
+    }
+    .inspector.open {
+      display: flex;
+    }
+    .inspector-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid #E2E8F0;
+      padding-bottom: 8px;
+    }
+    .inspector-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0F172A;
+    }
+    .inspector-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #EFF6FF;
+      color: #1D4ED8;
+      border: 1px solid #DBEAFE;
+    }
+    .inspector-close {
+      background: transparent;
+      border: none;
+      color: #94A3B8;
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .inspector-close:hover {
+      color: #0F172A;
+    }
+    .inspector-def {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #475569;
+    }
+    .inspector-section {
+      margin-top: 4px;
+    }
+    .inspector-subtitle {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748B;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .tag-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .tag {
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 10px;
+      color: #334155;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .formula-tag {
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 10px;
+      color: #065F46;
+      font-family: 'JetBrains Mono', monospace;
+      width: 100%;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="network-container"></div>
+
+  <!-- Domain Header -->
+  <div class="domain-badge">
+    <div class="domain-dot"></div>
+    <span class="domain-title">Working Capital and Treasury</span>
+    <span class="domain-stats">(16 nodes &middot; 20 edges)</span>
+  </div>
+
+  <!-- Action Controls -->
+  <div class="toolbar">
+    <button class="tool-btn" id="btn-fit" title="Fit to Screen">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+      Fit
+    </button>
+    <button class="tool-btn" id="btn-zoom-in" title="Zoom In">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
+    <button class="tool-btn" id="btn-zoom-out" title="Zoom Out">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
+    <button class="tool-btn active" id="btn-physics" title="Toggle Physics">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Physics
+    </button>
+  </div>
+
+  <!-- Groups Legend -->
+  <div class="legend" id="legend"></div>
+
+  <!-- Inspector Card -->
+  <div class="inspector" id="inspector">
+    <div class="inspector-header">
+      <div>
+        <div class="inspector-title" id="insp-name">Entity</div>
+        <div class="inspector-badge" id="insp-group">Group</div>
+      </div>
+      <button class="inspector-close" id="insp-close">&times;</button>
+    </div>
+    <div class="inspector-def" id="insp-def"></div>
+    <div class="inspector-section" id="insp-attrs-section">
+      <div class="inspector-subtitle">Attributes</div>
+      <div class="tag-container" id="insp-attrs"></div>
+    </div>
+    <div class="inspector-section" id="insp-formulas-section">
+      <div class="inspector-subtitle">Key Calculation Formulas</div>
+      <div id="insp-formulas"></div>
+    </div>
+  </div>
+
+  <script type="text/javascript">
+    const rawNodes = [{"key": "baddebt", "name": "BadDebt ValueManagement", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "Three-stage value model: access screening \u00e2\u2020\u2019 in-life collection (willingness\u00c3\u2014ability segments) \u00e2\u2020\u2019 recovery (multi-agency, debt sale), with NPV-based acceptance decisions. Bad debt runs 1\u00e2\u20ac\u201c2% of revenue; best practice recovers 1\u00e2\u20ac\u201c2 EBITDA points.", "attributes": ["stageModel", "npvAcceptance", "badDebtPctRevenue 1\u00e2\u20ac\u201c2%", "ebitdaUpside 1\u00e2\u20ac\u201c2pts"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "ccc", "name": "CashConversionCycle", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "C2C = DSO + DIO \u00e2\u02c6\u2019 DPO with lever sensitivities per component. Benchmarks: WCR consumer goods 15\u00e2\u20ac\u201c25% of sales; CCC median consumer staples \u00e2\u2030\u02c651 days; optimization unlocks 20\u00e2\u20ac\u201c30% of tied-up funds.", "attributes": ["c2cFormula (verbatim)", "dso", "dio", "dpo", "sectorBenchmarks"], "formulas": ["C2C = DSO + DIO \u00e2\u02c6\u2019 DPO"], "origin": "reference", "change_state": "unchanged"}, {"key": "collections", "name": "CollectionsAnalytics", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "Collection operations layer: payer-behaviour segmentation (always/sometimes/never on time), willingness \u00c3\u2014 ability collection matrix, dunning/chase prioritization, dispute-reason analytics (non-payment, short supply, wrong supply, damage, pricing).", "attributes": ["payerBehaviourSegment", "willingnessAbilityMatrix", "dunningPriority", "disputeReasons[]"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "custdim", "name": "Customer / Channel", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "Customer \u00e2\u2020\u2019 key account \u00e2\u2020\u2019 channel \u00e2\u2020\u2019 route-to-market hierarchy; the other axis of profitability, cost-to-serve and credit exposure.", "attributes": ["customerId", "keyAccount", "channel", "rtmModel", "creditTerms", "supplyChainModel"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "debtor", "name": "DebtorPosition / CreditPolicy", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "Position-level credit entity: arDso = meanDebt \u00c3\u00b7 dailySales; ageing buckets with bucketMigrationPct = (concentration \u00e2\u02c6\u2019 collection) \u00c3\u00b7 concentration (leading bad-debt indicator); doubtful rule >120 days; follow-up efficiency = collected \u00e2\u2030\u00a45 days of overdue \u00c3\u00b7 total overdue; dispute taxonomy; credit overrides; provisioning model.", "attributes": ["arDso (verbatim)", "ageingBuckets[]", "bucketMigrationPct (verbatim)", "followUpEfficiency (verbatim)", "disputes[]", "insuredExposure"], "formulas": ["arDso = meanDebt \u00c3\u00b7 dailySales", "bucketMigrationPct = (concentration \u00e2\u02c6\u2019 collection) \u00c3\u00b7 concentration (leading bad-debt indicator)", "follow-up efficiency = collected \u00e2\u2030\u00a45 days of overdue \u00c3\u00b7 total overdue"], "origin": "reference", "change_state": "unchanged"}, {"key": "distributor", "name": "Distributor / Wholesaler", "group_key": "rtm", "group_name": "01 Sales & Distribution (RtM)", "color": "#2E6FCA", "kind": "external", "role": "neighbour", "definition": "The indirect-RtM intermediary carrying the three sales flows: primary (manufacturer\u00e2\u2020\u2019distributor, sell-in), secondary (distributor\u00e2\u2020\u2019outlet, sell-out), tertiary (outlet\u00e2\u2020\u2019consumer).", "attributes": ["distributorId", "type (WS/distributor, multi-layer)", "marginStructure", "warehouses[]", "servedOutlets[]", "dcRdcPlantMapping", "creditLimit", "receivables", "pipelineStock", "sellOutFeedStatus"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "instruments", "name": "TradeFinance Instruments", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "The instrument layer: reverse factoring / supply-chain finance, factoring (recourse/non-recourse, disclosed/undisclosed), bill discounting, forfaiting (aval, without recourse), e-invoicing (payment-timing pitfall), cash pooling, commercial credit insurance, money-market floats, bank-communication/STP routing.", "attributes": ["instrumentType[]", "recourseFlag", "disclosureFlag", "stpRouting"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "inventory", "name": "InventoryPosition / Policy", "group_key": "supply", "group_name": "04 Supply Chain & Procurement", "color": "#2FA096", "kind": "external", "role": "neighbour", "definition": "Position per SKU \u00c3\u2014 location (net stock, open orders, inbound STOs, days of supply) and MEIO-optimized policy: segmentation \u00e2\u2020\u2019 service targets \u00e2\u2020\u2019 optimization minimizing carrying + lost-sales + replenishment cost; slow-moving (>18d) and remnant (>90d) flags.", "attributes": ["totalStock", "netStockAvailable", "openSalesOrders", "pendingInboundStos", "businessDaysOfSupply", "segmentation", "serviceLevelTarget", "safetyStock", "strategy (MTS/MTO/VMI)", "slowMovingFlag", "remnantFlag"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "orders", "name": "SupplyOrders (SO/STO/PO/Shipment)", "group_key": "supply", "group_name": "04 Supply Chain & Procurement", "color": "#2FA096", "kind": "external", "role": "neighbour", "definition": "The transactional movement objects: sales orders, stock transfer orders, purchase orders (PO vs non-PO), shipments with carriers and late-reason categories, trailer loads, pallets, invoices (3-way match).", "attributes": ["salesOrder", "stockTransferOrder", "transferOrder", "purchaseOrder", "shipment (carrier, lateReason)", "trailerLoad", "pallet", "invoice (3-way match)"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "p2ppolicy", "name": "P2P Policy Anatomy", "group_key": "f7", "group_name": "F7 Risk, Governance & Controls", "color": "#C2503E", "kind": "domain", "role": "neighbour", "definition": "The worked procure-to-pay policy artifact: header/versions/approvals \u00e2\u2020\u2019 objectives \u00e2\u2020\u2019 chapters vendor-onboarding\u00e2\u2020\u2019payment \u00e2\u2020\u2019 procedure step tables \u00e2\u2020\u2019 SLA table \u00e2\u2020\u2019 KPI table \u00e2\u2020\u2019 authority-matrix annexures. Verbatim thresholds: quotation ladder 1/2/3 quotes by value band; 3-way match Invoice = GRN \u00e2\u2030\u00a4 PO with zero price margin; monthly open-PO dispositions; duplicate-vendor checks on trade-license/IBAN; 7-criteria weighted vendor rating.", "attributes": ["policyAnatomy", "quotationLadder (verbatim)", "threeWayMatch (verbatim)", "vendorRating (7 criteria)", "openPoDisposition"], "formulas": ["3-way match Invoice = GRN \u00e2\u2030\u00a4 PO"], "origin": "reference", "change_state": "unchanged"}, {"key": "pnlrli", "name": "PnLReportingLineItem", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "neighbour", "definition": "The account roll-up ('RLI' pattern) instantiating gross-to-net down to net income \u00e2\u20ac\u201d evidenced IBP waterfall: volume \u00e2\u2020\u2019 grossTurnover \u00e2\u2020\u2019 \u00e2\u02c6\u2019discounts/rebates/incentives \u00e2\u2020\u2019 netRevenue \u00e2\u2020\u2019 \u00e2\u02c6\u2019VIC \u00e2\u2020\u2019 \u00e2\u02c6\u2019VLC \u00e2\u2020\u2019 MACO (= grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC, verbatim) \u00e2\u2020\u2019 \u00e2\u02c6\u2019ZBB overheads \u00e2\u2020\u2019 EBITDA \u00e2\u2020\u2019 operationalFreeCashFlow by zone.", "attributes": ["rliCode", "parent", "sign", "formulaRefs", "macoFormula (verbatim)", "zoneRollup"], "formulas": ["MACO = grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC"], "origin": "reference", "change_state": "unchanged"}, {"key": "riskpred", "name": "RiskPredictionModels", "group_key": "f6", "group_name": "F6 Statement Analysis & Valuation", "color": "#4EA36A", "kind": "domain", "role": "neighbour", "definition": "Ratio-based statistical prediction: bankruptcy models (Z-score lineage), bond-rating models, fundamental beta models \u00e2\u20ac\u201d the inventory of ratios with predictive power over distress and ratings.", "attributes": ["modelClass (bankruptcy\u00c2\u00b7rating\u00c2\u00b7beta)", "ratioInventory", "predictionHorizon"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "supplier", "name": "Supplier / ProcurementCategory", "group_key": "supply", "group_name": "04 Supply Chain & Procurement", "color": "#2FA096", "kind": "external", "role": "neighbour", "definition": "Vendor master with OTIF, lead time, reject/waiver rates and scorecards; category taxonomy direct (raw materials, packaging, logistics) vs indirect & traded; savings initiatives with the pipeline identified \u00e2\u2020\u2019 approved \u00e2\u2020\u2019 budgeted \u00e2\u2020\u2019 booked and the finance-to-procurement bridge.", "attributes": ["vendorId", "categoryAssignment", "otif", "leadTime", "rejectRate", "waiverRate", "concentrationShare", "scorecard", "savingsPipelineStage", "commodityPriceVsBudget", "contractCoverage"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "treasury", "name": "TreasuryFunction", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "The strategic-shift entity: back-office guardian \u00e2\u2020\u2019 strategic value creator (84% report expanded role; 37% of treasurers in C-suite). Lead roles by survey share: bank relationships 94% \u00c2\u00b7 short-term borrowing 86% \u00c2\u00b7 long-term funding 85% \u00c2\u00b7 FX/financial risk 53% \u00c2\u00b7 working capital 49% \u00c2\u00b7 internal consultant 46%.", "attributes": ["treasuryLeadRoles[] (survey %)", "strategicShift", "cSuitePresence 37%"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "wcprog", "name": "WorkingCapitalProgram", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "CCC managed through the process triad Purchase-to-Pay \u00c2\u00b7 Forecast-to-Fulfill (S&OP) \u00c2\u00b7 Order-to-Cash, staged Recovery \u00e2\u2020\u2019 Optimization \u00e2\u2020\u2019 Transformation. Governance: shared finance+functions 40% / CFO 33% / treasury 20%; only 42% apply a WACC hurdle to working capital.", "attributes": ["cccProcessTriad", "improvementStaging", "wcGovernance (survey %)", "waccHurdle 42%"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "zscore", "name": "CreditRiskScore (Z)", "group_key": "f4", "group_name": "F4 Working Capital & Treasury", "color": "#2FA096", "kind": "domain", "role": "core", "definition": "Altman Z-score banding applied to debtor risk: safe >2.99 / grey zone / distress <1.8 \u00e2\u20ac\u201d the operational cousin of the ratio-based risk-prediction family in F6.", "attributes": ["zFormula", "banding (2.99/1.8)", "payerRiskGrade"], "formulas": [], "origin": "reference", "change_state": "unchanged"}];
+    const rawEdges = [{"source": "custdim", "target": "debtor", "label": "credit exposure", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "treasury", "target": "wcprog", "label": "stewards", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "wcprog", "target": "ccc", "label": "manages", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "debtor", "target": "ccc", "label": "DSO lever", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "collections", "target": "debtor", "label": "works positions", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "baddebt", "target": "collections", "label": "stages value", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "instruments", "target": "ccc", "label": "funds/compresses", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "zscore", "target": "debtor", "label": "grades risk", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "treasury", "target": "instruments", "label": "selects", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "wcprog", "target": "p2ppolicy", "label": "DPO lever via P2P", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "riskpred", "target": "zscore", "label": "operationalizes", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "distributor", "target": "debtor", "label": "carries receivables", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "supplier", "target": "pnlrli", "label": "PPV & savings bridge", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "inventory", "target": "pnlrli", "label": "DIO \u00e2\u2020\u2019 working capital", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "orders", "target": "debtor", "label": "invoices age into", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "debtor", "target": "pnlrli", "label": "DSO \u00e2\u2020\u2019 C2C", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "industry-graph"}, {"source": "treasury", "target": "debtor", "label": "owns DSO program", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "industry-graph"}, {"source": "treasury", "target": "inventory", "label": "DIO lever", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "treasury", "target": "supplier", "label": "DPO \u00c2\u00b7 supply-chain finance", "origin": "reference", "change_state": "unchanged", "cross_domain": true, "origin_graph": "industry-graph"}, {"source": "treasury", "target": "pnlrli", "label": "C2C & capital charge", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "industry-graph"}];
+
+    // Build Legend
+    const legendEl = document.getElementById('legend');
+    const groupMap = new Map();
+    rawNodes.forEach(n => {
+      if (n.group_name && !groupMap.has(n.group_name)) {
+        groupMap.set(n.group_name, n.color || '#2FA096');
+      }
+    });
+    groupMap.forEach((color, name) => {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<span class="legend-color" style="background:${color};box-shadow:0 0 6px ${color}"></span><span>${name}</span>`;
+      legendEl.appendChild(item);
+    });
+
+    // Transform Nodes for Vis.js (White / Light Theme)
+    const visNodes = rawNodes.map(n => {
+      const nodeColor = n.color || '#2FA096';
+      return {
+        id: n.key,
+        label: n.name,
+        group: n.group_name,
+        color: {
+          background: '#FFFFFF',
+          border: nodeColor,
+          highlight: {
+            background: '#F0F9FF',
+            border: nodeColor
+          },
+          hover: {
+            background: '#F8FAFC',
+            border: nodeColor
+          }
+        },
+        font: {
+          color: '#0F172A',
+          size: 13,
+          face: 'Inter, sans-serif',
+          bold: true
+        },
+        shape: 'box',
+        margin: 12,
+        borderWidth: 2,
+        borderWidthSelected: 3,
+        shadow: {
+          enabled: true,
+          color: 'rgba(0, 0, 0, 0.08)',
+          size: 8,
+          x: 1,
+          y: 3
+        },
+        raw: n
+      };
+    });
+
+    // Transform Edges for Vis.js (White / Light Theme)
+    const visEdges = rawEdges.map((e, idx) => {
+      return {
+        id: 'e_' + idx,
+        from: e.source,
+        to: e.target,
+        label: e.label || '',
+        arrows: {
+          to: {
+            enabled: true,
+            scaleFactor: 0.8
+          }
+        },
+        color: {
+          color: '#94A3B8',
+          highlight: '#2563EB',
+          hover: '#64748B'
+        },
+        font: {
+          color: '#475569',
+          size: 11,
+          face: 'Inter, sans-serif',
+          align: 'middle',
+          background: 'rgba(255, 255, 255, 0.95)'
+        },
+        smooth: {
+          type: 'curvedCW',
+          roundness: 0.2
+        },
+        length: 220
+      };
+    });
+
+    const container = document.getElementById('network-container');
+    const nodesDataset = new vis.DataSet(visNodes);
+    const edgesDataset = new vis.DataSet(visEdges);
+
+    const data = {
+      nodes: nodesDataset,
+      edges: edgesDataset
+    };
+
+    const options = {
+      physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {
+          gravitationalConstant: -50,
+          centralGravity: 0.01,
+          springLength: 160,
+          springConstant: 0.08,
+          damping: 0.4
+        },
+        stabilization: {
+          iterations: 160,
+          updateInterval: 25
+        }
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 150,
+        selectable: true,
+        multiselect: false,
+        navigationButtons: false,
+        zoomView: true,
+        dragView: true
+      }
+    };
+
+    const network = new vis.Network(container, data, options);
+
+    // Inspector elements
+    const inspector = document.getElementById('inspector');
+    const inspName = document.getElementById('insp-name');
+    const inspGroup = document.getElementById('insp-group');
+    const inspDef = document.getElementById('insp-def');
+    const inspAttrs = document.getElementById('insp-attrs');
+    const inspAttrsSection = document.getElementById('insp-attrs-section');
+    const inspFormulas = document.getElementById('insp-formulas');
+    const inspFormulasSection = document.getElementById('insp-formulas-section');
+    const inspClose = document.getElementById('insp-close');
+
+    function showDetails(nodeRaw) {
+      if (!nodeRaw) {
+        inspector.classList.remove('open');
+        return;
+      }
+      inspName.textContent = nodeRaw.name || nodeRaw.key;
+      inspGroup.textContent = nodeRaw.group_name || 'Working Capital and Treasury';
+      inspDef.textContent = nodeRaw.definition || 'No definition available.';
+
+      const attrs = nodeRaw.attributes || [];
+      if (attrs.length > 0) {
+        inspAttrsSection.style.display = 'block';
+        inspAttrs.innerHTML = attrs.map(a => `<span class="tag">${typeof a === 'string' ? a : (a.name || a.key)}</span>`).join('');
+      } else {
+        inspAttrsSection.style.display = 'none';
+      }
+
+      const formulas = nodeRaw.formulas || [];
+      if (formulas.length > 0) {
+        inspFormulasSection.style.display = 'block';
+        inspFormulas.innerHTML = formulas.map(f => `<div class="formula-tag">${typeof f === 'string' ? f : (f.name || f.expression)}</div>`).join('');
+      } else {
+        inspFormulasSection.style.display = 'none';
+      }
+
+      inspector.classList.add('open');
+    }
+
+    inspClose.onclick = () => {
+      inspector.classList.remove('open');
+      network.unselectAll();
+      try {
+        window.parent.postMessage({ type: 'NODE_DESELECTED' }, '*');
+      } catch(e) {}
+    };
+
+    // Network Selection Events
+    network.on('selectNode', function(params) {
+      if (params.nodes && params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        const vNode = nodesDataset.get(nodeId);
+        if (vNode && vNode.raw) {
+          showDetails(vNode.raw);
+          try {
+            window.parent.postMessage({
+              type: 'NODE_SELECTED',
+              key: nodeId,
+              name: vNode.label,
+              node: vNode.raw
+            }, '*');
+          } catch(e) {}
+        }
+      }
+    });
+
+    network.on('deselectNode', function(params) {
+      if (!params.nodes || params.nodes.length === 0) {
+        inspector.classList.remove('open');
+        try {
+          window.parent.postMessage({ type: 'NODE_DESELECTED' }, '*');
+        } catch(e) {}
+      }
+    });
+
+    // Toolbar handlers
+    document.getElementById('btn-fit').onclick = () => {
+      network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+    };
+
+    document.getElementById('btn-zoom-in').onclick = () => {
+      const scale = network.getScale() * 1.3;
+      network.moveTo({ scale: scale, animation: { duration: 300 } });
+    };
+
+    document.getElementById('btn-zoom-out').onclick = () => {
+      const scale = network.getScale() * 0.7;
+      network.moveTo({ scale: scale, animation: { duration: 300 } });
+    };
+
+    let physicsEnabled = true;
+    const physicsBtn = document.getElementById('btn-physics');
+    physicsBtn.onclick = () => {
+      physicsEnabled = !physicsEnabled;
+      network.setOptions({ physics: { enabled: physicsEnabled } });
+      physicsBtn.classList.toggle('active', physicsEnabled);
+    };
+
+    // Settle physics after initial stabilization
+    network.once('stabilizationIterationsDone', function() {
+      network.fit({ animation: { duration: 500 } });
+      // Gently turn off continuous physics to save CPU
+      setTimeout(() => {
+        network.setOptions({ physics: { enabled: false } });
+        physicsBtn.classList.remove('active');
+        physicsEnabled = false;
+      }, 1200);
+    });
+
+    // Listen to messages from React Parent
+    window.addEventListener('message', function(event) {
+      const data = event.data;
+      if (!data) return;
+
+      if (data.type === 'SELECT_NODE' && data.key) {
+        network.selectNodes([data.key]);
+        network.focus(data.key, { scale: 1.15, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+        const vNode = nodesDataset.get(data.key);
+        if (vNode && vNode.raw) {
+          showDetails(vNode.raw);
+        }
+      } else if (data.type === 'DESELECT_NODE') {
+        network.unselectAll();
+        inspector.classList.remove('open');
+      } else if (data.type === 'FIT_GRAPH') {
+        network.fit({ animation: { duration: 600 } });
+      }
+    });
+
+    // Notify parent window that graph is ready
+    window.parent.postMessage({ type: 'GRAPH_READY', slug: 'working-capital-treasury' }, '*');
+  </script>
+</body>
+</html>

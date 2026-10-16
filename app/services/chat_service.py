@@ -334,23 +334,30 @@ class ChatService:
             "INSTRUCTIONS:\n"
             "1. Answer questions clearly, accurately, and concisely (2 to 5 sentences).\n"
             "2. Ground every fact in the active graph entities, attributes, formulas, or connections.\n"
-            "3. If the user suggests modifying, adding, or renaming an entity, acknowledge it and explain how it maps to this graph."
+            "3. If the user asks in Bengali or another language, reply fluently in the user's language.\n"
+            "4. If the user asks about an entity's calculations, explain its formulas.\n"
+            "5. If the user suggests modifying, adding, or renaming an entity, acknowledge it and explain how it connects."
         )
 
         user_prompt = f"User Question: {text}"
         if selected_ctx:
             user_prompt = f"Selected Entity Context: {json.dumps(selected_ctx, ensure_ascii=False)}\n\n" + user_prompt
 
+        recent = [m for m in self.convs.messages(conv["id"])[-4:] if m.get("content")]
+        if recent:
+            history_lines = [f"{m['role'].capitalize()}: {m['content'][:250]}" for m in recent]
+            user_prompt = "Recent chat history:\n" + "\n".join(history_lines) + "\n\n" + user_prompt
+
         answer, engine = None, "rule-based"
         if self.llm:
             try:
-                answer = self.llm.complete(sys_prompt, user_prompt, max_tokens=700).strip()
+                answer = self.llm.complete(sys_prompt, user_prompt, max_tokens=750).strip()
                 engine = self.engine
             except LLMError as e:
                 log.warning("LLM chat message failed: %s", e)
 
         if not answer:
-            answer = f"I'm here to help explore your {domain['name']} graph. It currently has {g_ctx['entity_count']} entities and {g_ctx['relationship_count']} relationships. You can ask about any entity or calculation formula."
+            answer = f"I'm here to help explore your {domain['name']} knowledge graph. It currently has {g_ctx['entity_count']} entities and {g_ctx['relationship_count']} relationships. You can ask about any entity, connection, or calculation formula."
 
         with self.db.transaction():
             self.convs.add_message(conv["id"], "user", text, "answer", {"node_key": node_key} if node_key else None)

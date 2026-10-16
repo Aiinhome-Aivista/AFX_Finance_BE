@@ -50,7 +50,16 @@ def domain(slug):
 @auth_required
 def domain_graph(slug):
     """KG0 for one domain: read-only, built from that domain's own core nodes + ontology-supported shared/neighbour nodes."""
-    return jsonify(ReferenceService(get_db()).domain_graph(slug, neighbours=_flag("neighbours", True)))
+    res = ReferenceService(get_db()).domain_graph(slug, neighbours=_flag("neighbours", True))
+    try:
+        from flask import current_app
+        from ..services.html_graph_service import HTMLGraphService
+        graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+        html_url = HTMLGraphService.save_html(slug, res.get("domain", {}), res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
+        res["html_url"] = html_url
+    except Exception as e:
+        pass
+    return jsonify(res)
 
 
 @bp.get("/domains/<slug>/blocks")

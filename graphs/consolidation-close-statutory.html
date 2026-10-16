@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consolidation, Close and Statutory — Knowledge Graph</title>
+  <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 50%, #FFFFFF 0%, #F1F5F9 100%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #0F172A;
+      user-select: none;
+    }
+    #network-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* Top Toolbar */
+    .toolbar {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 6px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .tool-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #475569;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .tool-btn:hover {
+      background: rgba(241, 245, 249, 0.95);
+      color: #0F172A;
+      border-color: #CBD5E1;
+    }
+    .tool-btn.active {
+      background: rgba(59, 130, 246, 0.12);
+      color: #2563EB;
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+    /* Floating Domain Badge */
+    .domain-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 8px 14px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .domain-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #A0784A;
+      box-shadow: 0 0 8px #A0784A;
+    }
+    .domain-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #0F172A;
+    }
+    .domain-stats {
+      font-size: 11px;
+      color: #64748B;
+      margin-left: 4px;
+    }
+    /* Legend */
+    .legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: 60%;
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      padding: 8px 12px;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 500;
+    }
+    .legend-color {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    /* Node Info Overlay */
+    .inspector {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      width: 320px;
+      max-height: 280px;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 14px;
+      padding: 14px;
+      z-index: 20;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      transition: opacity 0.2s ease;
+    }
+    .inspector.open {
+      display: flex;
+    }
+    .inspector-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid #E2E8F0;
+      padding-bottom: 8px;
+    }
+    .inspector-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0F172A;
+    }
+    .inspector-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #EFF6FF;
+      color: #1D4ED8;
+      border: 1px solid #DBEAFE;
+    }
+    .inspector-close {
+      background: transparent;
+      border: none;
+      color: #94A3B8;
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .inspector-close:hover {
+      color: #0F172A;
+    }
+    .inspector-def {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #475569;
+    }
+    .inspector-section {
+      margin-top: 4px;
+    }
+    .inspector-subtitle {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748B;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .tag-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .tag {
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 10px;
+      color: #334155;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .formula-tag {
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 10px;
+      color: #065F46;
+      font-family: 'JetBrains Mono', monospace;
+      width: 100%;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="network-container"></div>
+
+  <!-- Domain Header -->
+  <div class="domain-badge">
+    <div class="domain-dot"></div>
+    <span class="domain-title">Consolidation, Close and Statutory</span>
+    <span class="domain-stats">(11 nodes &middot; 13 edges)</span>
+  </div>
+
+  <!-- Action Controls -->
+  <div class="toolbar">
+    <button class="tool-btn" id="btn-fit" title="Fit to Screen">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+      Fit
+    </button>
+    <button class="tool-btn" id="btn-zoom-in" title="Zoom In">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
+    <button class="tool-btn" id="btn-zoom-out" title="Zoom Out">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+    </button>
+    <button class="tool-btn active" id="btn-physics" title="Toggle Physics">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Physics
+    </button>
+  </div>
+
+  <!-- Groups Legend -->
+  <div class="legend" id="legend"></div>
+
+  <!-- Inspector Card -->
+  <div class="inspector" id="inspector">
+    <div class="inspector-header">
+      <div>
+        <div class="inspector-title" id="insp-name">Entity</div>
+        <div class="inspector-badge" id="insp-group">Group</div>
+      </div>
+      <button class="inspector-close" id="insp-close">&times;</button>
+    </div>
+    <div class="inspector-def" id="insp-def"></div>
+    <div class="inspector-section" id="insp-attrs-section">
+      <div class="inspector-subtitle">Attributes</div>
+      <div class="tag-container" id="insp-attrs"></div>
+    </div>
+    <div class="inspector-section" id="insp-formulas-section">
+      <div class="inspector-subtitle">Key Calculation Formulas</div>
+      <div id="insp-formulas"></div>
+    </div>
+  </div>
+
+  <script type="text/javascript">
+    const rawNodes = [{"key": "closectl", "name": "CloseControl", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "The close cockpit: task sequencing & dependencies, reconciliation management, journal control, tax provisioning. Benchmarks: close cycle 18 days \u00e2\u2020\u2019 1 week; world-class \u00e2\u2030\u02c62 days.", "attributes": ["closeCalendar", "reconciliationMgmt", "journalControl", "taxProvisioning", "closeCycleBenchmark (18d\u00e2\u2020\u20191wk\u00e2\u2020\u20192d)"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "consol", "name": "FinancialConsolidation", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "Group consolidation engine: intercompany elimination & matching, currency translation, minority interests, stage/step consolidation \u00e2\u20ac\u201d one of the canonical five CPM suite components.", "attributes": ["consolidationScope", "icElimination", "currencyTranslation", "minorityInterest", "ownershipPct"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "epmplat", "name": "EPMPlatformModel", "group_key": "f8", "group_name": "F8 EPM Platforms & Operating Model", "color": "#64748B", "kind": "domain", "role": "neighbour", "definition": "The technology object Domain-07 runs on \u00e2\u20ac\u201d the canonical five CPM suite components: budgeting-planning-forecasting \u00c2\u00b7 profitability modeling & optimization (ABC/ABM) \u00c2\u00b7 strategy management \u00c2\u00b7 financial consolidation & close \u00c2\u00b7 statutory/management reporting & disclosure.", "attributes": ["cpmSuiteComponents[] (5 verbatim)", "cloudVsOnPrem ($50\u00e2\u20ac\u201c500K vs ~$200/person/yr)", "marketSize ($2.2B\u00e2\u2020\u2019$2.8B)"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "icmatch", "name": "Intercompany Matching", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "IC reconciliation before elimination: counterparty matching by transaction type with tolerance rules \u00e2\u20ac\u201d the close-control extension that removes the biggest close-cycle drag.", "attributes": ["counterpartyPair", "matchingRule", "toleranceBand", "disputeQueue"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "impair", "name": "ImpairmentTesting (IAS 36)", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "Recoverable amount = higher of fair value less costs to sell and value in use; CGU logic; goodwill-loss allocation order; reversal rules \u00e2\u20ac\u201d the standing accounting-standard event evidenced with worked figures.", "attributes": ["recoverableAmount (verbatim rule)", "cguDefinition", "goodwillAllocation", "reversalRules"], "formulas": ["Recoverable amount = higher of fair value less costs to sell and value in use"], "origin": "reference", "change_state": "unchanged"}, {"key": "indirecttax", "name": "IndirectTax Mechanics", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "Dual-GST machinery: CGST/SGST/IGST credit-utilization matrix, destination-based levy, and the supply-chain re-engineering impact of tax-neutral interstate movement.", "attributes": ["gstCreditMatrix", "destinationBasis", "supplyChainImpact"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "pnlrli", "name": "PnLReportingLineItem", "group_key": "f2", "group_name": "F2 Management Reporting & Gross-to-Net", "color": "#8A4FD0", "kind": "domain", "role": "neighbour", "definition": "The account roll-up ('RLI' pattern) instantiating gross-to-net down to net income \u00e2\u20ac\u201d evidenced IBP waterfall: volume \u00e2\u2020\u2019 grossTurnover \u00e2\u2020\u2019 \u00e2\u02c6\u2019discounts/rebates/incentives \u00e2\u2020\u2019 netRevenue \u00e2\u2020\u2019 \u00e2\u02c6\u2019VIC \u00e2\u2020\u2019 \u00e2\u02c6\u2019VLC \u00e2\u2020\u2019 MACO (= grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC, verbatim) \u00e2\u2020\u2019 \u00e2\u02c6\u2019ZBB overheads \u00e2\u2020\u2019 EBITDA \u00e2\u2020\u2019 operationalFreeCashFlow by zone.", "attributes": ["rliCode", "parent", "sign", "formulaRefs", "macoFormula (verbatim)", "zoneRollup"], "formulas": ["MACO = grossTurnover \u00e2\u02c6\u2019 VIC \u00e2\u02c6\u2019 VILC"], "origin": "reference", "change_state": "unchanged"}, {"key": "restate", "name": "AnalyticalRestatements", "group_key": "f6", "group_name": "F6 Statement Analysis & Valuation", "color": "#4EA36A", "kind": "domain", "role": "neighbour", "definition": "Restate before any cross-company comparison: LIFO\u00e2\u2020\u201dFIFO via LIFO reserve \u00c2\u00b7 capitalization vs expensing \u00c2\u00b7 off-balance-sheet & securitization add-backs \u00c2\u00b7 equity-method vs consolidation recast \u00c2\u00b7 purchase vs pooling \u00c2\u00b7 FX effects \u00c2\u00b7 lease capitalization. Anchor case: a beverage major's bottler-consolidation recast.", "attributes": ["restatementType[]", "lifoReserve", "obsAddbacks", "leaseCapitalization"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "riskctrl", "name": "RiskControlFramework", "group_key": "f7", "group_name": "F7 Risk, Governance & Controls", "color": "#C2503E", "kind": "domain", "role": "neighbour", "definition": "The governance spine: control environment ('tone at the top') \u00c2\u00b7 risk assessment (likelihood \u00c3\u2014 impact \u00c3\u2014 controllability) \u00c2\u00b7 risk response (avoid/accept/mitigate/share) \u00c2\u00b7 control activities (policies = principles, procedures = steps; preventive/detective balance) \u00c2\u00b7 information & communication \u00c2\u00b7 monitoring (design vs operating effectiveness).", "attributes": ["controlComponents[] (6)", "assertionChecks", "preventiveDetectiveBalance", "effectivenessTests"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "srcsys", "name": "SourceSystem / ERP", "group_key": "spine", "group_name": "Finance master-data spine", "color": "#5A8AC3", "kind": "spine", "role": "shared", "definition": "The canonical source landscape finance consumes: ERP GL/COPA, sub-ledgers, TPM, BW/DW, with mapping/ETL bridges, drill-back and audit trail into the EPM layer.", "attributes": ["systemClass (ERP\u00c2\u00b7subLedger\u00c2\u00b7TPM\u00c2\u00b7DW)", "extractPattern", "mappingBridge", "drillBack", "auditTrail"], "formulas": [], "origin": "reference", "change_state": "unchanged"}, {"key": "statrep", "name": "StatutoryReporting", "group_key": "f5", "group_name": "F5 Consolidation, Close & Statutory", "color": "#A0784A", "kind": "domain", "role": "core", "definition": "Financial/statutory/management reporting & disclosure: GAAP/IFRS presentation, XBRL tagging, disclosure management \u00e2\u20ac\u201d the last mile of record-to-report.", "attributes": ["reportingRegime (GAAP/IFRS)", "xbrlTagging", "disclosureWorkflow"], "formulas": [], "origin": "reference", "change_state": "unchanged"}];
+    const rawEdges = [{"source": "srcsys", "target": "epmplat", "label": "feeds", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "srcsys", "target": "closectl", "label": "actuals into close", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "icmatch", "target": "consol", "label": "precedes elimination", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "consol", "target": "statrep", "label": "publishes", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "closectl", "target": "consol", "label": "orchestrates", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "impair", "target": "statrep", "label": "adjusts", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "indirecttax", "target": "statrep", "label": "levies within", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "closectl", "target": "pnlrli", "label": "closes actuals into", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "statrep", "target": "restate", "label": "statement inputs", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "riskctrl", "target": "closectl", "label": "controls close", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "epmplat", "target": "consol", "label": "consolidation engine", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "finance-graph"}, {"source": "riskctrl", "target": "pnlrli", "label": "impairment & provisions", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "industry-graph"}, {"source": "epmplat", "target": "pnlrli", "label": "consolidation & close", "origin": "reference", "change_state": "unchanged", "cross_domain": false, "origin_graph": "industry-graph"}];
+
+    // Build Legend
+    const legendEl = document.getElementById('legend');
+    const groupMap = new Map();
+    rawNodes.forEach(n => {
+      if (n.group_name && !groupMap.has(n.group_name)) {
+        groupMap.set(n.group_name, n.color || '#A0784A');
+      }
+    });
+    groupMap.forEach((color, name) => {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<span class="legend-color" style="background:${color};box-shadow:0 0 6px ${color}"></span><span>${name}</span>`;
+      legendEl.appendChild(item);
+    });
+
+    // Transform Nodes for Vis.js (White / Light Theme)
+    const visNodes = rawNodes.map(n => {
+      const nodeColor = n.color || '#A0784A';
+      return {
+        id: n.key,
+        label: n.name,
+        group: n.group_name,
+        color: {
+          background: '#FFFFFF',
+          border: nodeColor,
+          highlight: {
+            background: '#F0F9FF',
+            border: nodeColor
+          },
+          hover: {
+            background: '#F8FAFC',
+            border: nodeColor
+          }
+        },
+        font: {
+          color: '#0F172A',
+          size: 13,
+          face: 'Inter, sans-serif',
+          bold: true
+        },
+        shape: 'box',
+        margin: 12,
+        borderWidth: 2,
+        borderWidthSelected: 3,
+        shadow: {
+          enabled: true,
+          color: 'rgba(0, 0, 0, 0.08)',
+          size: 8,
+          x: 1,
+          y: 3
+        },
+        raw: n
+      };
+    });
+
+    // Transform Edges for Vis.js (White / Light Theme)
+    const visEdges = rawEdges.map((e, idx) => {
+      return {
+        id: 'e_' + idx,
+        from: e.source,
+        to: e.target,
+        label: e.label || '',
+        arrows: {
+          to: {
+            enabled: true,
+            scaleFactor: 0.8
+          }
+        },
+        color: {
+          color: '#94A3B8',
+          highlight: '#2563EB',
+          hover: '#64748B'
+        },
+        font: {
+          color: '#475569',
+          size: 11,
+          face: 'Inter, sans-serif',
+          align: 'middle',
+          background: 'rgba(255, 255, 255, 0.95)'
+        },
+        smooth: {
+          type: 'curvedCW',
+          roundness: 0.2
+        },
+        length: 220
+      };
+    });
+
+    const container = document.getElementById('network-container');
+    const nodesDataset = new vis.DataSet(visNodes);
+    const edgesDataset = new vis.DataSet(visEdges);
+
+    const data = {
+      nodes: nodesDataset,
+      edges: edgesDataset
+    };
+
+    const options = {
+      physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {
+          gravitationalConstant: -50,
+          centralGravity: 0.01,
+          springLength: 160,
+          springConstant: 0.08,
+          damping: 0.4
+        },
+        stabilization: {
+          iterations: 160,
+          updateInterval: 25
+        }
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 150,
+        selectable: true,
+        multiselect: false,
+        navigationButtons: false,
+        zoomView: true,
+        dragView: true
+      }
+    };
+
+    const network = new vis.Network(container, data, options);
+
+    // Inspector elements
+    const inspector = document.getElementById('inspector');
+    const inspName = document.getElementById('insp-name');
+    const inspGroup = document.getElementById('insp-group');
+    const inspDef = document.getElementById('insp-def');
+    const inspAttrs = document.getElementById('insp-attrs');
+    const inspAttrsSection = document.getElementById('insp-attrs-section');
+    const inspFormulas = document.getElementById('insp-formulas');
+    const inspFormulasSection = document.getElementById('insp-formulas-section');
+    const inspClose = document.getElementById('insp-close');
+
+    function showDetails(nodeRaw) {
+      if (!nodeRaw) {
+        inspector.classList.remove('open');
+        return;
+      }
+      inspName.textContent = nodeRaw.name || nodeRaw.key;
+      inspGroup.textContent = nodeRaw.group_name || 'Consolidation, Close and Statutory';
+      inspDef.textContent = nodeRaw.definition || 'No definition available.';
+
+      const attrs = nodeRaw.attributes || [];
+      if (attrs.length > 0) {
+        inspAttrsSection.style.display = 'block';
+        inspAttrs.innerHTML = attrs.map(a => `<span class="tag">${typeof a === 'string' ? a : (a.name || a.key)}</span>`).join('');
+      } else {
+        inspAttrsSection.style.display = 'none';
+      }
+
+      const formulas = nodeRaw.formulas || [];
+      if (formulas.length > 0) {
+        inspFormulasSection.style.display = 'block';
+        inspFormulas.innerHTML = formulas.map(f => `<div class="formula-tag">${typeof f === 'string' ? f : (f.name || f.expression)}</div>`).join('');
+      } else {
+        inspFormulasSection.style.display = 'none';
+      }
+
+      inspector.classList.add('open');
+    }
+
+    inspClose.onclick = () => {
+      inspector.classList.remove('open');
+      network.unselectAll();
+      try {
+        window.parent.postMessage({ type: 'NODE_DESELECTED' }, '*');
+      } catch(e) {}
+    };
+
+    // Network Selection Events
+    network.on('selectNode', function(params) {
+      if (params.nodes && params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        const vNode = nodesDataset.get(nodeId);
+        if (vNode && vNode.raw) {
+          showDetails(vNode.raw);
+          try {
+            window.parent.postMessage({
+              type: 'NODE_SELECTED',
+              key: nodeId,
+              name: vNode.label,
+              node: vNode.raw
+            }, '*');
+          } catch(e) {}
+        }
+      }
+    });
+
+    network.on('deselectNode', function(params) {
+      if (!params.nodes || params.nodes.length === 0) {
+        inspector.classList.remove('open');
+        try {
+          window.parent.postMessage({ type: 'NODE_DESELECTED' }, '*');
+        } catch(e) {}
+      }
+    });
+
+    // Toolbar handlers
+    document.getElementById('btn-fit').onclick = () => {
+      network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+    };
+
+    document.getElementById('btn-zoom-in').onclick = () => {
+      const scale = network.getScale() * 1.3;
+      network.moveTo({ scale: scale, animation: { duration: 300 } });
+    };
+
+    document.getElementById('btn-zoom-out').onclick = () => {
+      const scale = network.getScale() * 0.7;
+      network.moveTo({ scale: scale, animation: { duration: 300 } });
+    };
+
+    let physicsEnabled = true;
+    const physicsBtn = document.getElementById('btn-physics');
+    physicsBtn.onclick = () => {
+      physicsEnabled = !physicsEnabled;
+      network.setOptions({ physics: { enabled: physicsEnabled } });
+      physicsBtn.classList.toggle('active', physicsEnabled);
+    };
+
+    // Settle physics after initial stabilization
+    network.once('stabilizationIterationsDone', function() {
+      network.fit({ animation: { duration: 500 } });
+      // Gently turn off continuous physics to save CPU
+      setTimeout(() => {
+        network.setOptions({ physics: { enabled: false } });
+        physicsBtn.classList.remove('active');
+        physicsEnabled = false;
+      }, 1200);
+    });
+
+    // Listen to messages from React Parent
+    window.addEventListener('message', function(event) {
+      const data = event.data;
+      if (!data) return;
+
+      if (data.type === 'SELECT_NODE' && data.key) {
+        network.selectNodes([data.key]);
+        network.focus(data.key, { scale: 1.15, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+        const vNode = nodesDataset.get(data.key);
+        if (vNode && vNode.raw) {
+          showDetails(vNode.raw);
+        }
+      } else if (data.type === 'DESELECT_NODE') {
+        network.unselectAll();
+        inspector.classList.remove('open');
+      } else if (data.type === 'FIT_GRAPH') {
+        network.fit({ animation: { duration: 600 } });
+      }
+    });
+
+    // Notify parent window that graph is ready
+    window.parent.postMessage({ type: 'GRAPH_READY', slug: 'consolidation-close-statutory' }, '*');
+  </script>
+</body>
+</html>

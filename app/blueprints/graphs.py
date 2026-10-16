@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, g, jsonify, request
 
 from ..db import get_db
@@ -8,6 +10,7 @@ from ..services.graph_service import GraphService
 from ..services.proposal_service import ProposalService
 from ._helpers import audit, domain_wf, json_body, llm
 
+log = logging.getLogger(__name__)
 bp = Blueprint("graphs", __name__, url_prefix="/api/domains/<slug>")
 
 
@@ -33,7 +36,41 @@ def working_graph(slug):
     domain, wf = domain_wf(slug)
     gs = GraphService(get_db())
     n, _ = gs.working(g.user_id, wf, domain)
-    return jsonify(gs.graph(g.user_id, wf, domain, n))
+    res = gs.graph(g.user_id, wf, domain, n)
+    try:
+        from flask import current_app
+        from ..services.html_graph_service import HTMLGraphService
+        graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+        html_url = HTMLGraphService.save_html(slug, domain, res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
+        res["html_url"] = html_url
+    except Exception as e:
+        log.warning("Could not auto-generate HTML graph for working graph: %s", e)
+    return jsonify(res)
+
+
+@bp.get("/graph-html")
+@auth_required
+def graph_html(slug):
+    """Returns the URL of the generated HTML graph, generating it if needed."""
+    domain, wf = domain_wf(slug)
+    from flask import current_app
+    from ..services.html_graph_service import HTMLGraphService
+    graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+    p = HTMLGraphService.get_graph_path(graph_dir, slug)
+    if not p.exists():
+        gs = GraphService(get_db())
+        try:
+            n, _ = gs.working(g.user_id, wf, domain)
+            gdata = gs.graph(g.user_id, wf, domain, n)
+        except Exception:
+            from ..services.reference_service import ReferenceService
+            gdata = ReferenceService(get_db()).domain_graph(slug, neighbours=True)
+        html_url = HTMLGraphService.save_html(slug, domain, gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
+    else:
+        clean_slug = slug.strip().replace(" ", "-").replace("%20", "-").lower()
+        html_url = f"/api/graphs/{clean_slug}.html"
+
+    return jsonify({"html_url": html_url, "exists": True, "slug": slug})
 
 
 @bp.post("/generate-graph")
@@ -53,6 +90,17 @@ def generate_graph(slug):
     else:
         out = gen.generate_graph(domain, prompt)
         audit("graph.generate_llm_preview", "domain", slug)
+
+    try:
+        import time
+        from flask import current_app
+        from ..services.html_graph_service import HTMLGraphService
+        graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+        html_url = HTMLGraphService.save_html(slug, domain, out.get("nodes", []), out.get("edges", []), output_dir=graph_dir)
+        out["html_url"] = f"{html_url}?t={int(time.time())}"
+    except Exception as e:
+        log.warning("Could not auto-generate HTML graph for generated graph: %s", e)
+
     return jsonify(out), 200
 
 
