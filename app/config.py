@@ -13,12 +13,16 @@ def _bool(v, default=False):
 class Config:
     SECRET_KEY: str = "dev-secret-change-me"
     JWT_EXPIRES_HOURS: int = 12
-    CORS_ORIGINS: list = field(default_factory=lambda: ["http://localhost:5173"])
+    CORS_ORIGINS: list = field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173", "*"])
     DB_HOST: str = "72.61.226.68"
     DB_PORT: int = 3306
     DB_USER: str = "aiinhome"
     DB_PASSWORD: str = "Aiin@2026"
     DB_NAME: str = "finance_kg"
+    ARANGO_URL: str = "http://72.61.226.68:8529"
+    ARANGO_USER: str = "root"
+    ARANGO_PASSWORD: str = "Aiinhome@2026"
+    ARANGO_DB: str = "agentforgex_finance_kg"
     UPLOAD_DIR: str = "./uploads"
     GRAPH_DIR: str = "./graphs"
     MAX_UPLOAD_MB: int = 25
@@ -40,6 +44,10 @@ class Config:
             DB_HOST=e.get("DB_HOST", "72.61.226.68"), DB_PORT=int(e.get("DB_PORT", 3306)),
             DB_USER=e.get("DB_USER", "aiinhome"), DB_PASSWORD=e.get("DB_PASSWORD", "Aiin@2026"),
             DB_NAME=e.get("DB_NAME", "finance_kg"),
+            ARANGO_URL=e.get("ARANGO_URL", "http://72.61.226.68:8529"),
+            ARANGO_USER=e.get("ARANGO_USER", "root"),
+            ARANGO_PASSWORD=e.get("ARANGO_PASSWORD", "Aiinhome@2026"),
+            ARANGO_DB=e.get("ARANGO_DB", "agentforgex_finance_kg"),
             UPLOAD_DIR=e.get("UPLOAD_DIR", "./uploads"),
             GRAPH_DIR=e.get("GRAPH_DIR", "./graphs"),
             MAX_UPLOAD_MB=int(e.get("MAX_UPLOAD_MB", 25)),

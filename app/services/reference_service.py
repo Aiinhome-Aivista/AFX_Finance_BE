@@ -5,7 +5,7 @@ from .graph_ops import GraphState, reference_edge_to_state, reference_node_to_st
 
 
 class ReferenceService:
-    def __init__(self, db):
+    def __init__(self, db=None):
         self.repo = ReferenceRepository(db)
 
     # ------------------------------------------------------------------ domains
@@ -52,6 +52,74 @@ class ReferenceService:
                  for e in self.repo.edges_within(keep)]
         return {"domain": {"slug": d["slug"], "code": d["code"], "name": d["name"], "color": d["color"]},
                 "version": {"number": 0, "label": "KG0", "readonly": True}, "nodes": nodes, "edges": edges}
+
+    def overview_graph(self):
+        """Full Finance Knowledge Graph overview (Central master spine + 8 sub-domains + edges + flows)."""
+        domains = self.list_domains()
+        nodes_raw = self.repo.all_nodes()
+        nodes = []
+        for n in nodes_raw:
+            nodes.append({
+                "id": n["node_key"],
+                "key": n["node_key"],
+                "n": n["name"],
+                "name": n["name"],
+                "d": n["group_key"],
+                "group_key": n["group_key"],
+                "group_name": n["group_name"],
+                "color": n["color"],
+                "kind": n["kind"],
+                "def": n["definition"],
+                "definition": n["definition"],
+                "a": n["attributes"] or [],
+                "attributes": n["attributes"] or [],
+                "f": n["formulas"] or [],
+                "formulas": n["formulas"] or [],
+                "ev": n["evidence"],
+                "evidence": n["evidence"],
+                "canon_attributes": n.get("canon_attributes") or [],
+                "canon_ref": n.get("canon_ref"),
+                "canon_title": n.get("canon_title"),
+                "canon_joins": n.get("canon_joins"),
+                "canon_evidence": n.get("canon_evidence"),
+            })
+
+        edges_raw = self.repo.all_edges()
+        edges = []
+        for e in edges_raw:
+            edges.append({
+                "source": e["source_key"],
+                "target": e["target_key"],
+                "label": e["label"],
+                "origin_graph": e.get("origin_graph"),
+                "cross_domain": bool(e.get("cross_domain", 0)),
+            })
+
+        flows = []
+        for f in self.repo.flows():
+            steps = self.repo.flow_steps(f["id"])
+            step_keys = [s["node_key"] for s in steps]
+            flows.append({
+                "key": f["flow_key"],
+                "title": f["title"],
+                "narrative": f["narrative"],
+                "steps": step_keys,
+                "ids": step_keys,
+                "step_count": len(step_keys),
+            })
+
+        return {
+            "domains": domains,
+            "nodes": nodes,
+            "edges": edges,
+            "flows": flows,
+            "counts": {
+                "domains": len(domains),
+                "nodes": len(nodes),
+                "edges": len(edges),
+                "flows": len(flows),
+            },
+        }
 
     def node_detail(self, key, domain_slug=None):
         n = self.repo.node(key)

@@ -1,7 +1,7 @@
 from flask import Blueprint, g, jsonify, request
 
 from ..db import get_db
-from ..security import auth_required
+from ..security import auth_optional, auth_required
 from ..services.reference_service import ReferenceService
 from ..services.workflow_service import WorkflowService
 from ._helpers import audit, json_body
@@ -34,6 +34,23 @@ def list_domains():
     db = get_db()
     return jsonify({"domains": ReferenceService(db).list_domains(request.args.get("q")),
                     "progress": WorkflowService(db).overview(g.user_id)})
+
+
+@bp.get("/ontology/overview-graph")
+@bp.get("/overview-graph")
+@auth_optional
+def overview_graph():
+    """Returns the complete dynamic finance ontology overview graph from ArangoDB / database."""
+    ref = ReferenceService()
+    res = ref.overview_graph()
+    res["progress"] = {}
+    if g.user_id:
+        try:
+            db = get_db()
+            res["progress"] = WorkflowService(db).overview(g.user_id)
+        except Exception:
+            pass
+    return jsonify(res)
 
 
 @bp.get("/domains/<slug>")
