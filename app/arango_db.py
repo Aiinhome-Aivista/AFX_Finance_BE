@@ -30,18 +30,18 @@ class ArangoHttpDriver:
             full_url = f"{self.url}{path}"
         else:
             full_url = f"{self.url}/_db/{target_db}{path}"
-        kwargs.setdefault("timeout", 15)
+        kwargs.setdefault("timeout", (4, 8))
         
-        # Retry once or twice on transient network connect timeouts
+        # Retry once on transient network connect timeouts
         last_exc = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 resp = self.session.request(method, full_url, **kwargs)
                 return resp
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
                 last_exc = e
                 import time
-                time.sleep(0.5)
+                time.sleep(0.3)
         raise last_exc
 
     def ping(self):

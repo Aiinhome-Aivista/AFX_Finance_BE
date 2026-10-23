@@ -43,14 +43,31 @@ def overview_graph():
     """Returns the complete dynamic finance ontology overview graph from ArangoDB / database."""
     ref = ReferenceService()
     res = ref.overview_graph()
-    res["progress"] = {}
+    base_url = "http://127.0.0.1:5000"
+    overview_url = f"{base_url}/api/graphs/finance-overview.html"
+    for d in res.get("domains", []):
+        slug = d.get("slug")
+        if slug:
+            d["graph_url"] = f"{base_url}/api/graphs/{slug}.html"
+    progress = {}
     if g.user_id:
         try:
             db = get_db()
-            res["progress"] = WorkflowService(db).overview(g.user_id)
+            progress = WorkflowService(db).overview(g.user_id)
         except Exception:
             pass
-    return jsonify(res)
+
+    # Ensure graph_url is the very FIRST key in the response JSON
+    response_data = {
+        "graph_url": overview_url,
+        "counts": res.get("counts", {}),
+        "domains": res.get("domains", []),
+        "nodes": res.get("nodes", []),
+        "edges": res.get("edges", []),
+        "flows": res.get("flows", []),
+        "progress": progress,
+    }
+    return jsonify(response_data)
 
 
 @bp.get("/domains/<slug>")
@@ -92,6 +109,7 @@ def domain_graph(slug):
         graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
         html_url = HTMLGraphService.save_html(slug, res.get("domain", {}), res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
         res["html_url"] = html_url
+        res["graph_url"] = f"http://127.0.0.1:5000{html_url}"
     except Exception as e:
         pass
     return jsonify(res)

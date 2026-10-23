@@ -5,6 +5,8 @@ from ..arango_db import get_arango
 
 log = logging.getLogger(__name__)
 
+_cached_counts = None
+
 
 def _node(r):
     if not r:
@@ -38,6 +40,26 @@ class ReferenceRepository:
         except Exception as e:
             log.warning("Could not initialize ArangoDB client: %s", e)
             self.arango = None
+
+    def overview_raw(self):
+        """Fetches entire graph in one single network roundtrip from ArangoDB."""
+        if self.arango:
+            try:
+                aql = """
+                RETURN {
+                  domains: (FOR d IN domains SORT d.sort_order RETURN d),
+                  nodes: (FOR n IN kg_ref_nodes SORT n._key RETURN n),
+                  edges: (FOR e IN kg_ref_edges RETURN e),
+                  flows: (FOR f IN flows SORT f.sort_order RETURN f),
+                  counts: (FOR dn IN domain_nodes COLLECT domain = dn.domain_slug, role = dn.role WITH COUNT INTO c RETURN {domain: domain, role: role, count: c})
+                }
+                """
+                res = self.arango.query(aql)
+                if res:
+                    return res[0]
+            except Exception as e:
+                log.warning("ArangoDB single-query overview_raw failed: %s", e)
+        return None
 
     # ---- domains
     def domains(self):
@@ -121,6 +143,10 @@ class ReferenceRepository:
         return {}
 
     def domain_node_counts(self):
+        global _cached_counts
+        if _cached_counts:
+            return dict(_cached_counts)
+
         # 1. Try ArangoDB
         if self.arango:
             try:
@@ -135,6 +161,7 @@ class ReferenceRepository:
                     out = {}
                     for r in res:
                         out.setdefault(r["domain"], {})[r["role"]] = r["count"]
+                    _cached_counts = out
                     return out
             except Exception as e:
                 log.warning("ArangoDB domain_node_counts() failed: %s", e)

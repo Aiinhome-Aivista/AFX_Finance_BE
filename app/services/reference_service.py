@@ -55,6 +55,94 @@ class ReferenceService:
 
     def overview_graph(self):
         """Full Finance Knowledge Graph overview (Central master spine + 8 sub-domains + edges + flows)."""
+        fast = self.repo.overview_raw()
+        if fast:
+            counts_map = {}
+            for r in fast.get("counts", []):
+                counts_map.setdefault(r["domain"], {})[r["role"]] = r["count"]
+
+            domains = []
+            for d in fast.get("domains", []):
+                slug = d.get("slug")
+                c = counts_map.get(slug, {})
+                domains.append({
+                    "id": slug,
+                    "code": d.get("code"),
+                    "slug": slug,
+                    "name": d.get("name"),
+                    "description": d.get("description", ""),
+                    "scope": d.get("scope", ""),
+                    "color": d.get("color", "#2563EB"),
+                    "graph_url": f"http://127.0.0.1:5000/api/graphs/{slug}.html",
+                    "counts": {"core": c.get("core", 0), "shared": c.get("shared", 0), "neighbour": c.get("neighbour", 0)}
+                })
+
+            nodes = []
+            for n in fast.get("nodes", []):
+                k = n.get("node_key") or n.get("key") or n.get("_key")
+                nodes.append({
+                    "id": k,
+                    "key": k,
+                    "n": n.get("name", k),
+                    "name": n.get("name", k),
+                    "d": n.get("group_key", "general"),
+                    "group_key": n.get("group_key", "general"),
+                    "group_name": n.get("group_name", ""),
+                    "color": n.get("color", "#2563EB"),
+                    "kind": n.get("kind", "domain"),
+                    "def": n.get("definition", ""),
+                    "definition": n.get("definition", ""),
+                    "a": n.get("attributes") or [],
+                    "attributes": n.get("attributes") or [],
+                    "f": n.get("formulas") or [],
+                    "formulas": n.get("formulas") or [],
+                    "ev": n.get("evidence", ""),
+                    "evidence": n.get("evidence", ""),
+                    "canon_attributes": n.get("canon_attributes") or [],
+                    "canon_ref": n.get("canon_ref"),
+                    "canon_title": n.get("canon_title"),
+                    "canon_joins": n.get("canon_joins"),
+                    "canon_evidence": n.get("canon_evidence"),
+                })
+
+            edges = []
+            for e in fast.get("edges", []):
+                edges.append({
+                    "source": e.get("source_key") or e.get("source"),
+                    "target": e.get("target_key") or e.get("target"),
+                    "label": e.get("label", "relates_to"),
+                    "origin_graph": e.get("origin_graph"),
+                    "cross_domain": bool(e.get("cross_domain", 0)),
+                })
+
+            flows = []
+            for f in fast.get("flows", []):
+                fkey = f.get("flow_key") or f.get("key") or f.get("_key")
+                steps = f.get("steps") or []
+                flows.append({
+                    "key": fkey,
+                    "title": f.get("title", fkey),
+                    "narrative": f.get("narrative", ""),
+                    "steps": steps,
+                    "ids": steps,
+                    "step_count": len(steps),
+                })
+
+            return {
+                "graph_url": "http://127.0.0.1:5000/api/graphs/finance-overview.html",
+                "domains": domains,
+                "nodes": nodes,
+                "edges": edges,
+                "flows": flows,
+                "counts": {
+                    "domains": len(domains),
+                    "nodes": len(nodes),
+                    "edges": len(edges),
+                    "flows": len(flows),
+                },
+            }
+
+        # Fallback to multi-query approach
         domains = self.list_domains()
         nodes_raw = self.repo.all_nodes()
         nodes = []
@@ -97,18 +185,18 @@ class ReferenceService:
 
         flows = []
         for f in self.repo.flows():
-            steps = self.repo.flow_steps(f["id"])
-            step_keys = [s["node_key"] for s in steps]
+            steps = f.get("steps") or [s["node_key"] for s in self.repo.flow_steps(f["id"])]
             flows.append({
                 "key": f["flow_key"],
                 "title": f["title"],
                 "narrative": f["narrative"],
-                "steps": step_keys,
-                "ids": step_keys,
-                "step_count": len(step_keys),
+                "steps": steps,
+                "ids": steps,
+                "step_count": len(steps),
             })
 
         return {
+            "graph_url": "http://127.0.0.1:5000/api/graphs/finance-overview.html",
             "domains": domains,
             "nodes": nodes,
             "edges": edges,

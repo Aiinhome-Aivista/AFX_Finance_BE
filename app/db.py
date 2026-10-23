@@ -87,7 +87,7 @@ def connect(cfg, database=True):
     return pymysql.connect(
         host=cfg.DB_HOST, port=cfg.DB_PORT, user=cfg.DB_USER, password=cfg.DB_PASSWORD,
         database=cfg.DB_NAME if database else None, charset="utf8mb4", cursorclass=DictCursor, autocommit=True,
-        connect_timeout=8,
+        connect_timeout=3,
     )
 
 

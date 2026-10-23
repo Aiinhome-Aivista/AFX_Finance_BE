@@ -65,14 +65,8 @@ def auth_optional(fn):
         if header.startswith("Bearer "):
             try:
                 claims = decode_token(header[7:])
-                try:
-                    row = get_db().one("SELECT jti FROM revoked_tokens WHERE jti=%s", (claims["jti"],))
-                    if not row:
-                        g.user_id = int(claims["sub"])
-                        g.token_claims = claims
-                except Exception:
-                    g.user_id = int(claims.get("sub", 0)) or None
-                    g.token_claims = claims
+                g.user_id = int(claims.get("sub", 0)) or None
+                g.token_claims = claims
             except Exception:
                 pass
         return fn(*a, **kw)
