@@ -64,13 +64,32 @@ class GraphState:
             e["change_state"] = "unchanged"
 
     def find(self, ref):
-        """Resolve a node reference by key, then by (case-insensitive) display name."""
+        """Resolve a node reference by key, display name, normalized string, or stem/alias."""
+        if not ref:
+            return None
         if ref in self.nodes:
             return ref
         r = norm(ref)
+        if not r:
+            return None
+        # 1. Exact key normalized or exact name normalized
         for k, n in self.nodes.items():
-            if norm(n["name"]) == r:
+            if norm(k) == r or norm(n.get("name", "")) == r:
                 return k
+        # 2. Substring / containment match
+        for k, n in self.nodes.items():
+            nk = norm(k)
+            nn = norm(n.get("name", ""))
+            if r in nk or nk in r or r in nn or nn in r:
+                return k
+        # 3. Stem matching (e.g. planversion vs planningversions, zbb vs zerobasedbudgetingzbb)
+        stem = r.replace("ing", "").rstrip("s")
+        if len(stem) >= 4:
+            for k, n in self.nodes.items():
+                k_stem = norm(k).replace("ing", "").rstrip("s")
+                n_stem = norm(n.get("name", "")).replace("ing", "").rstrip("s")
+                if stem in k_stem or k_stem in stem or stem in n_stem or n_stem in stem:
+                    return k
         return None
 
     def edge_between(self, a, b):

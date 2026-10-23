@@ -77,6 +77,11 @@ def extract(topic, node_key, state, text):
     """-> dict(ops=[...], followup=str|None, ack=str, skipped=bool)"""
     text = (text or "").strip()
     node = state.nodes.get(node_key)
+    if node is None and node_key:
+        resolved_key = state.find(node_key)
+        if resolved_key:
+            node_key = resolved_key
+            node = state.nodes.get(node_key)
     res = {"ops": [], "followup": None, "ack": "", "skipped": False}
     if not text or SKIP_RE.match(text):
         res.update(skipped=True, ack="No problem — I'll skip that one.")

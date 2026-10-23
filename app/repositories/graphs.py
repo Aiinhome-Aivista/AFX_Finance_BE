@@ -1,10 +1,39 @@
 from ..db import Session, jload, jdump
 
 
+def _clean_str(s):
+    if not isinstance(s, str):
+        return s
+    return (s.replace("â€“", "—")
+             .replace("â€”", "—")
+             .replace("â€\"", "—")
+             .replace("â€\x9d", "\"")
+             .replace("â€\x9c", "\"")
+             .replace("â€˜", "'")
+             .replace("â€™", "'")
+             .replace("â€œ", "\"")
+             .replace("Ã—", "×")
+             .replace("â†’", "→")
+             .replace("âˆ’", "-")
+             .replace("Ã·", "/")
+             .replace("Â§", "§")
+             .replace("Â", ""))
+
+
 def _n(r):
     r = dict(r)
-    r["attributes"] = jload(r["attributes"], [])
-    r["formulas"] = jload(r["formulas"], [])
+    if "name" in r:
+        r["name"] = _clean_str(r["name"])
+    if "definition" in r:
+        r["definition"] = _clean_str(r["definition"])
+    raw_attrs = jload(r["attributes"], [])
+    r["attributes"] = [_clean_str(a) if isinstance(a, str) else a for a in raw_attrs]
+    raw_forms = jload(r["formulas"], [])
+    r["formulas"] = [_clean_str(f) if isinstance(f, str) else f for f in raw_forms]
+    if "evidence" in r:
+        r["evidence"] = _clean_str(r["evidence"])
+    if "notes" in r:
+        r["notes"] = _clean_str(r["notes"])
     return r
 
 

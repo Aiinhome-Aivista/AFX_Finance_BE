@@ -6,6 +6,7 @@ from .graph_ops import GraphState, reference_edge_to_state, reference_node_to_st
 
 class ReferenceService:
     def __init__(self, db):
+        self.db = db
         self.repo = ReferenceRepository(db)
 
     # ------------------------------------------------------------------ domains
@@ -149,32 +150,179 @@ class ReferenceService:
                 out.append({"key": n["node_key"], "name": n["name"], "group_name": n["group_name"], "color": n["color"], "hits": hits[:6]})
         return out
 
+    # ------------------------------------------------------------------ user graph resolution for flows
+    def _user_graph_map(self, user_id, slug=None):
+        if not user_id:
+            return {}, []
+        try:
+            import logging
+            from .workflow_service import WorkflowService
+            from ..repositories.graphs import GraphRepository
+            d = self.domain(slug) if slug else None
+            wf = WorkflowService(self.db).get_wf(user_id, d, required=False) if d else None
+            if not wf:
+                wfs = self.db.query("SELECT * FROM workflows WHERE user_id=%s ORDER BY id DESC LIMIT 1", (user_id,))
+                wf = wfs[0] if wfs else None
+            if wf:
+                latest = GraphRepository(self.db).latest(user_id, wf["id"])
+                if latest:
+                    u_nodes = {n["key"]: n for n in GraphRepository(self.db).nodes(latest["id"])}
+                    u_edges = GraphRepository(self.db).edges(latest["id"])
+                    return u_nodes, u_edges
+        except Exception as e:
+            logging.getLogger(__name__).warning("Could not load user graph for flows: %s", e)
+        return {}, []
+
     # ------------------------------------------------------------------ flows
-    def flows(self, slug=None):
+    def flows(self, slug=None, user_id=None):
         roles = {}
         if slug:
             roles = self.repo.domain_node_roles(self.domain(slug)["id"])
+        user_nodes, user_edges = self._user_graph_map(user_id, slug)
+
         out = []
         for f in self.repo.flows():
-            keys = [s["node_key"] for s in self.repo.flow_steps(f["id"])]
-            out.append({"key": f["flow_key"], "title": f["title"], "narrative": f["narrative"], "step_count": len(keys),
-                        "relevant": bool(slug) and any(roles.get(k) == "core" for k in keys),
-                        "touches_domain": bool(slug) and any(k in roles for k in keys)})
+            steps = self.repo.flow_steps(f["id"])
+            keys = [s["node_key"] for s in steps]
+            flow_keys_set = set(keys)
+            augmented_keys = list(keys)
+
+            # Insert any newly added domain nodes that connect to this flow
+            if user_nodes and user_edges:
+                added_nodes = {k: n for k, n in user_nodes.items() if n.get("change_state") == "added"}
+                for ue in user_edges:
+                    src, tgt = ue.get("source"), ue.get("target")
+                    if src in added_nodes and tgt in flow_keys_set and src not in flow_keys_set:
+                        idx = augmented_keys.index(tgt) if tgt in augmented_keys else len(augmented_keys)
+                        augmented_keys.insert(idx, src)
+                        flow_keys_set.add(src)
+                    elif tgt in added_nodes and src in flow_keys_set and tgt not in flow_keys_set:
+                        idx = augmented_keys.index(src) + 1 if src in augmented_keys else len(augmented_keys)
+                        augmented_keys.insert(idx, tgt)
+                        flow_keys_set.add(tgt)
+
+            # Resolve names for each step
+            all_ref_nodes = {n["node_key"]: n for n in self.repo.nodes_by_keys(augmented_keys)} if augmented_keys else {}
+
+            step_names = []
+            has_customized_step = False
+            for k in augmented_keys:
+                ref_n = all_ref_nodes.get(k)
+                if k in user_nodes:
+                    un = user_nodes[k]
+                    step_names.append(un["name"])
+                    is_custom = (
+                        un.get("change_state") in ("modified", "added")
+                        or (un.get("ref_name") and un.get("name") != un.get("ref_name"))
+                        or bool(un.get("notes"))
+                        or (ref_n and un.get("name") != ref_n.get("name"))
+                    )
+                    if is_custom:
+                        has_customized_step = True
+                elif ref_n:
+                    step_names.append(ref_n["name"])
+                else:
+                    step_names.append(k)
+
+            dynamic_narrative = " → ".join(step_names) if step_names else f["narrative"]
+
+            out.append({
+                "key": f["flow_key"],
+                "title": f["title"],
+                "narrative": dynamic_narrative,
+                "step_count": len(augmented_keys),
+                "customized": has_customized_step,
+                "relevant": bool(slug) and any(roles.get(k) == "core" for k in augmented_keys),
+                "touches_domain": bool(slug) and any(k in roles for k in augmented_keys)
+            })
         return out
 
-    def flow_detail(self, key):
+    def flow_detail(self, key, user_id=None, slug=None):
         f = self.repo.flow(key)
         if not f:
             raise NotFoundError("Unknown flow.")
+        user_nodes, user_edges = self._user_graph_map(user_id, slug)
         steps = self.repo.flow_steps(f["id"])
         keys = [s["node_key"] for s in steps]
-        nodes = {n["node_key"]: n for n in self.repo.nodes_by_keys(keys)}
-        edges = self.repo.edges_within(keys)
-        return {"key": f["flow_key"], "title": f["title"], "narrative": f["narrative"],
-                "steps": [{"order": s["step_order"], "node_key": s["node_key"], "name": nodes[s["node_key"]]["name"],
-                           "group_name": nodes[s["node_key"]]["group_name"], "color": nodes[s["node_key"]]["color"],
-                           "definition": nodes[s["node_key"]]["definition"], "attributes": nodes[s["node_key"]]["attributes"],
-                           "evidence": nodes[s["node_key"]]["evidence"]} for s in steps],
-                "nodes": [self._public_node(n, "flow") for n in nodes.values()],
-                "edges": [{"source": e["source_key"], "target": e["target_key"], "label": e["label"], "origin": "reference",
-                           "change_state": "unchanged", "cross_domain": bool(e["cross_domain"])} for e in edges]}
+        flow_keys_set = set(keys)
+        augmented_steps = list(steps)
+
+        if user_nodes and user_edges:
+            added_nodes = {k: n for k, n in user_nodes.items() if n.get("change_state") == "added"}
+            for ue in user_edges:
+                src, tgt = ue.get("source"), ue.get("target")
+                if src in added_nodes and tgt in flow_keys_set and src not in flow_keys_set:
+                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": src})
+                    flow_keys_set.add(src)
+                elif tgt in added_nodes and src in flow_keys_set and tgt not in flow_keys_set:
+                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": tgt})
+                    flow_keys_set.add(tgt)
+
+        all_keys = [s["node_key"] for s in augmented_steps]
+        missing_keys = [k for k in all_keys if k not in user_nodes]
+        ref_nodes = {n["node_key"]: n for n in self.repo.nodes_by_keys(missing_keys)} if missing_keys else {}
+
+        resolved_steps = []
+        step_names = []
+        for idx, s in enumerate(augmented_steps, 1):
+            k = s["node_key"]
+            if k in user_nodes:
+                un = user_nodes[k]
+                step_names.append(un["name"])
+                resolved_steps.append({
+                    "order": idx,
+                    "node_key": k,
+                    "name": un["name"],
+                    "group_name": un["group_name"],
+                    "color": un["color"],
+                    "definition": un["definition"],
+                    "attributes": un.get("attributes", []),
+                    "evidence": un.get("evidence", ""),
+                    "change_state": un.get("change_state", "unchanged"),
+                    "notes": un.get("notes")
+                })
+            elif k in ref_nodes:
+                rn = ref_nodes[k]
+                step_names.append(rn["name"])
+                resolved_steps.append({
+                    "order": idx,
+                    "node_key": k,
+                    "name": rn["name"],
+                    "group_name": rn["group_name"],
+                    "color": rn["color"],
+                    "definition": rn["definition"],
+                    "attributes": rn["attributes"],
+                    "evidence": rn["evidence"],
+                    "change_state": "unchanged",
+                    "notes": rn.get("notes")
+                })
+
+        dynamic_narrative = " → ".join(step_names) if step_names else f["narrative"]
+        edges = self.repo.edges_within(all_keys)
+        edge_keys = {(e["source_key"], e["target_key"]) for e in edges}
+        augmented_edges = [{"source": e["source_key"], "target": e["target_key"], "label": e["label"], "origin": "reference",
+                            "change_state": "unchanged", "cross_domain": bool(e["cross_domain"])} for e in edges]
+        for ue in user_edges:
+            s, t = ue.get("source"), ue.get("target")
+            if s in flow_keys_set and t in flow_keys_set and (s, t) not in edge_keys:
+                augmented_edges.append({
+                    "source": s,
+                    "target": t,
+                    "label": ue.get("label", "connects to"),
+                    "origin": ue.get("origin", "customization"),
+                    "change_state": ue.get("change_state", "added"),
+                    "cross_domain": bool(ue.get("cross_domain", False))
+                })
+
+        all_flow_nodes = [self._public_node(n, "flow") for n in ref_nodes.values()] + [
+            self._public_node(un, "flow") for un in user_nodes.values() if un["key"] in flow_keys_set
+        ]
+
+        return {
+            "key": f["flow_key"],
+            "title": f["title"],
+            "narrative": dynamic_narrative,
+            "steps": resolved_steps,
+            "nodes": all_flow_nodes,
+            "edges": augmented_edges
+        }

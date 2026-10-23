@@ -89,13 +89,14 @@ def blocks(slug):
 @bp.get("/domains/<slug>/flows")
 @auth_required
 def domain_flows(slug):
-    return jsonify({"flows": ReferenceService(get_db()).flows(slug)})
+    return jsonify({"flows": ReferenceService(get_db()).flows(slug, user_id=g.user_id)})
 
 
 @bp.get("/flows/<key>")
 @auth_required
 def flow(key):
-    return jsonify(ReferenceService(get_db()).flow_detail(key))
+    slug = request.args.get("domain")
+    return jsonify(ReferenceService(get_db()).flow_detail(key, user_id=g.user_id, slug=slug))
 
 
 @bp.get("/nodes/<key>")

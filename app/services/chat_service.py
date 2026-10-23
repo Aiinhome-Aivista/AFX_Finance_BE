@@ -123,7 +123,7 @@ class ChatService:
 
     # ------------------------------------------------------------------ plan
     def _build_plan(self, state):
-        return {"queue": [], "max_questions": 10}
+        return {"queue": [], "max_questions": None}
 
     # ------------------------------------------------------------------ snapshot
     def _msg(self, m):
@@ -134,8 +134,8 @@ class ChatService:
         qs = self.convs.questions(conv["id"])
         open_q = next((q for q in reversed(qs) if q["status"] == "asked"), None)
         answered = sum(1 for q in qs if q["status"] in ("answered", "skipped") and not q["is_followup"])
-        planned = 10
-        plan_complete = answered >= planned and open_q is None
+        has_completion_flag = any((m.get("meta") or {}).get("plan_complete") for m in msgs)
+        plan_complete = bool(open_q is None and (has_completion_flag or answered > 0))
         pending_ops = sum(len(q["extracted_ops"]) for q in qs if q["status"] == "answered" and not q["proposed"])
 
         res = {
@@ -149,8 +149,8 @@ class ChatService:
                 "is_followup": bool(open_q["is_followup"])
             } if open_q else None,
             "progress": {
-                "answered": min(answered, 10),
-                "planned": planned,
+                "answered": answered,
+                "planned": None,
                 "plan_complete": plan_complete
             },
             "pending_change_count": pending_ops,
@@ -164,7 +164,8 @@ class ChatService:
         return res
 
     def _generate_dynamic_question(self, domain, state, qs):
-        """Generates the next contextual finance interview question using the LLM and the active graph state."""
+        """Generates the next contextual finance interview question using the LLM and the active graph state,
+        or dynamically decides to complete when the domain is sufficiently tailored."""
         past_qa = []
         asked_questions = []
         for q in qs:
@@ -180,31 +181,43 @@ class ChatService:
 
         sys_prompt = (
             f"You are the senior Finance Ontology & Knowledge Graph interviewer customized for the domain “{domain['name']}”.\n"
-            f"Your mission is to conduct a professional, 10-question discovery interview with a finance executive to adapt "
+            f"Your mission is to conduct a contextual discovery interview with a finance executive to adapt "
             f"and tailor their live knowledge graph to how their actual business operates.\n\n"
             f"ACTIVE KNOWLEDGE GRAPH CONTEXT ({g_ctx['entity_count']} entities, {g_ctx['relationship_count']} relationships):\n"
             f"{g_ctx['entities_text']}\n\n"
             f"ACTIVE RELATIONSHIPS:\n{g_ctx['relationships_text']}\n\n"
-            f"INTERVIEW RULES:\n"
-            f"1. Generate question #{question_idx} of 10.\n"
-            f"2. Ground the question deeply in the active entities, attributes, formulas, or connections shown above.\n"
-            f"3. Pick an entity or process area that hasn't been thoroughly explored yet.\n"
-            f"4. NEVER repeat previously asked questions or concepts.\n"
-            f"5. Questions should address real finance nuances: custom hierarchies, specific deduction/rebate calculations, missing master entities, integration flows, or variance tracking.\n"
-            f"6. Ask exactly ONE clear, friendly, and practical question for the user to answer."
+            f"EVALUATION & INTERVIEW RULES:\n"
+            f"1. You are NOT bound to a fixed number of questions (there is no 10-question requirement).\n"
+            f"2. Dynamically evaluate whether the entities, relationships, attributes, and formulas for “{domain['name']}” are already sufficiently tailored and clear based on the active graph and previous dialogue.\n"
+            f"3. If the domain context is sufficiently understood or the core customizations have been addressed, mark the interview complete (complete: true).\n"
+            f"4. If a further question is needed to clarify an important unexplored aspect of this domain (e.g. custom organizational hierarchies, specific gross-to-net deductions, variance tracking, or calculation formulas):\n"
+            f"   - Ground the question deeply in the active entities, attributes, formulas, or connections shown above.\n"
+            f"   - Pick an entity or process area that hasn't been thoroughly explored yet.\n"
+            f"   - NEVER repeat previously asked questions or concepts.\n"
+            f"   - Ask exactly ONE clear, friendly, and practical question for the user to answer."
         )
 
         user_prompt = {
-            "question_number": question_idx,
             "domain": domain["name"],
-            "previously_asked_questions": asked_questions[-10:],
-            "previous_dialogue_summary": past_qa[-5:],
-            "instructions": "Return JSON: {\"question\": \"string\", \"target_node_key\": \"key of entity being explored\", \"topic\": \"naming|attributes|relationships|rules|missing|experience\"}"
+            "questions_answered_so_far": question_idx - 1,
+            "previously_asked_questions": asked_questions[-12:],
+            "previous_dialogue_summary": past_qa[-6:],
+            "instructions": (
+                "Decide if another question is needed for this domain. Return JSON in one of these two forms:\n"
+                "If another question is needed:\n"
+                "{\"complete\": false, \"question\": \"...\", \"target_node_key\": \"key of entity being explored\", \"topic\": \"naming|attributes|relationships|rules|missing|experience\"}\n"
+                "If the domain context is sufficiently complete and no further questions are needed:\n"
+                "{\"complete\": true, \"reason\": \"...\"}"
+            )
         }
 
         if self.llm:
             try:
                 out = self.llm.complete_json(sys_prompt, json.dumps(user_prompt, ensure_ascii=False), max_tokens=600)
+                if out.get("complete") is True and question_idx > 1:
+                    log.info("LLM concluded domain interview for %s after %d questions: %s", domain["name"], question_idx - 1, out.get("reason"))
+                    return None, None, None
+
                 q_text = clean_text(out.get("question"), 600)
                 node_key = out.get("target_node_key") or ""
                 if node_key not in state.nodes:
@@ -212,13 +225,17 @@ class ChatService:
                 topic = out.get("topic") or "attributes"
                 if q_text and len(q_text) >= 15:
                     return q_text, node_key, topic
+                elif out.get("complete") is True:
+                    return None, None, None
             except Exception as e:
                 log.warning("LLM dynamic question generation failed: %s", e)
 
-        # Fallback question based on unvisited nodes in graph
+        # Fallback question based on unvisited nodes in graph (only if <= 5 questions answered)
+        if question_idx > 5:
+            return None, None, None
+
         candidates = [k for k in state.nodes if k not in {q.get("node_key") for q in qs}] or list(state.nodes.keys())
         target = candidates[0] if candidates else list(state.nodes.keys())[0]
-        n = state.nodes[target]
         fb_topics = ["attributes", "relationships", "rules", "naming"]
         chosen_topic = fb_topics[(question_idx - 1) % len(fb_topics)]
         fb_q = self._question_text(domain, state, target, chosen_topic)
@@ -229,11 +246,13 @@ class ChatService:
         _, state = self.graphs.working(user_id, wf, domain)
         qs = self.convs.questions(conv["id"])
         answered = sum(1 for q in qs if q["status"] in ("answered", "skipped") and not q["is_followup"])
-        if answered >= 10:
+        if answered >= 15:
             return False
 
         seq = (qs[-1]["seq"] if qs else 0) + 1
         text, node_key, topic = self._generate_dynamic_question(domain, state, qs)
+        if not text:
+            return False
 
         qid = self.convs.add_question(conv["id"], seq, node_key, topic, text)
         self.convs.add_message(conv["id"], "assistant", text, "question",
@@ -251,9 +270,13 @@ class ChatService:
         with self.db.transaction():
             cid = self.convs.create(user_id, wf["id"], plan)
             conv = self.convs.get(user_id, wf["id"])
-            hi = (f"Hi! I'm your AI Knowledge Graph Copilot for “{domain['name']}”. "
-                  "I'll analyze your active live graph and conduct a 10-question dynamic discovery interview. "
-                  "Each answer you provide will be analyzed by the LLM and dynamically updated directly into your knowledge graph nodes, attributes, and relationships.")
+            u = self.db.one("SELECT display_name FROM users WHERE id = %s", (user_id,))
+            full_name = u["display_name"] if u and u.get("display_name") else ""
+            first_name = full_name.split()[0] if full_name else "there"
+            hi = (f"Hello {first_name}! Welcome to “{domain['name']}”. "
+                  "I'm here to help adapt this financial model to how your organization actually operates. "
+                  "We'll explore your key processes and reporting structures together, "
+                  "and your inputs will automatically refine and update the knowledge graph in real time.")
             self.convs.add_message(cid, "assistant", hi, "intro", {"engine": self.engine})
             self._ask_next(user_id, wf, domain, conv)
         return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]))
@@ -262,7 +285,7 @@ class ChatService:
         wf = self._wf(user_id, domain)
         conv = self.convs.get(user_id, wf["id"])
         if not conv:
-            return {"conversation_id": None, "messages": [], "open_question": None, "progress": {"answered": 0, "planned": 10, "plan_complete": False},
+            return {"conversation_id": None, "messages": [], "open_question": None, "progress": {"answered": 0, "planned": None, "plan_complete": False},
                     "pending_change_count": 0, "engine": self.engine, "llm_enabled": bool(self.llm), "finalized": bool(wf["finalized_version_number"])}
         return self.snapshot(user_id, wf, conv)
 
@@ -308,22 +331,42 @@ class ChatService:
         with self.db.transaction():
             self.convs.add_message(conv["id"], "user", text, "answer", {"question_id": q["id"]})
             analysis, fallback = self._analyze(domain, state, q, text)
-            accepted, rejected, _ = validate_sequence(state, analysis["ops"], number + 1)
+
+            # Combine any unproposed ops from previous questions that didn't apply earlier with current ops
+            unproposed_qs = self.convs.unproposed(conv["id"])
+            staged_ops = []
+            staged_qids = []
+            for uq in unproposed_qs:
+                if uq["id"] != q["id"] and uq.get("extracted_ops"):
+                    staged_qids.append(uq["id"])
+                    for uo in uq["extracted_ops"]:
+                        p = dict(uo.get("payload") or {})
+                        if uo.get("op") in ("update_node", "remove_node") and "node_key" in p:
+                            res_nk = state.find(p["node_key"])
+                            if res_nk:
+                                p["node_key"] = res_nk
+                        staged_ops.append({"op": uo["op"], "payload": p, "rationale": uo.get("rationale")})
+
+            candidate_ops = staged_ops + (analysis.get("ops") or [])
+            accepted, rejected, _ = validate_sequence(state, candidate_ops, number + 1)
             ops = [{"op": a["op"], "payload": a["payload"], "rationale": a["rationale"]} for a in accepted]
             status = "skipped" if analysis["skipped"] else "answered"
-            self.convs.answer_question(q["id"], text, ops, status)
+            self.convs.answer_question(q["id"], text, analysis.get("ops") or [], status)
             if status == "answered":
                 self.convs.add_experience(user_id, wf["id"], q["id"], q["node_key"], q["topic"], text)
 
             # Apply accepted graph updates dynamically to the user's graph version
             if ops:
                 try:
-                    summary = f"LLM dynamic graph update from question #{q['seq']} answer: {text[:60]}"
+                    summary = f"Dynamic graph update from question #{q['seq']} answer: {text[:60]}"
                     new_version = self.graphs.create_version(
                         user_id, wf, domain, ops, "customization", None, summary, "user"
                     )
                     number, state = self.graphs.working(user_id, wf, domain)
                     updated_graph_data = self.graphs.graph(user_id, wf, domain, new_version)
+
+                    # Mark applied question ops so pending_change_count clears automatically
+                    self.convs.mark_proposed([q["id"]] + staged_qids)
 
                     # Also refresh static HTML visualization for iframe
                     try:
@@ -337,11 +380,97 @@ class ChatService:
                 except Exception as e:
                     log.warning("Direct graph update failed, kept in ops: %s", e)
 
-            ack = analysis["ack"] or "Noted and processed."
-            if ops:
-                ack += f" (Dynamically updated knowledge graph: {len(ops)} node/relationship changes applied.)"
-            elif rejected and not accepted and analysis["ops"]:
-                ack += " (I reviewed your response; those items already exist in the graph so no duplicate nodes were added.)"
+            # Detailed breakdown of graph changes and duplicate detection
+            added_nodes = []
+            added_edges = []
+            updated_nodes = []
+            duplicate_nodes = list(analysis.get("duplicate_nodes") or [])
+            duplicate_edges = []
+
+            for a in accepted:
+                op_type = a.get("op")
+                p = a.get("payload") or {}
+                if op_type == "add_node":
+                    n_name = p.get("name") or p.get("node_key")
+                    if n_name and n_name not in added_nodes:
+                        added_nodes.append(n_name)
+                elif op_type == "add_edge":
+                    s_key = p.get("source")
+                    t_key = p.get("target")
+                    lbl = p.get("label") or "relates to"
+                    s_name = state.nodes.get(s_key, {}).get("name", s_key) if s_key in state.nodes else s_key
+                    t_name = state.nodes.get(t_key, {}).get("name", t_key) if t_key in state.nodes else t_key
+                    if s_name and t_name:
+                        added_edges.append(f"“{s_name}” → “{t_name}” ({lbl})")
+                elif op_type == "update_node":
+                    nk = p.get("node_key")
+                    n_name = p.get("name") or (state.nodes.get(nk, {}).get("name", nk) if nk in state.nodes else nk)
+                    details = []
+                    if p.get("name") and p.get("name") != state.nodes.get(nk, {}).get("name"):
+                        details.append(f"renamed to “{p['name']}”")
+                    if p.get("add_attributes"):
+                        attrs_str = ", ".join(p["add_attributes"][:3])
+                        details.append(f"added attributes: {attrs_str}")
+                    if p.get("append_note") or p.get("definition"):
+                        details.append("updated definitions/rules")
+                    detail_str = f" ({'; '.join(details)})" if details else ""
+                    if n_name and n_name not in updated_nodes:
+                        updated_nodes.append(f"“{n_name}”{detail_str}")
+
+            for r in rejected:
+                r_op = r.get("op")
+                r_pl = r.get("payload") or {}
+                errs = r.get("errors") or []
+                err_text = " ".join(errs).lower()
+                if r_op == "add_node" or "already exists" in err_text:
+                    node_name = r_pl.get("name") or r_pl.get("node_key")
+                    if not node_name:
+                        import re
+                        m = re.search(r"named ['\"]([^'\"]+)['\"]", " ".join(errs))
+                        if m:
+                            node_name = m.group(1)
+                    if node_name and node_name not in duplicate_nodes:
+                        duplicate_nodes.append(node_name)
+                elif r_op == "add_edge":
+                    s_k = r_pl.get("source")
+                    t_k = r_pl.get("target")
+                    s_n = state.nodes.get(s_k, {}).get("name", s_k) if s_k in state.nodes else s_k
+                    t_n = state.nodes.get(t_k, {}).get("name", t_k) if t_k in state.nodes else t_k
+                    lbl = r_pl.get("label") or "relates to"
+                    duplicate_edges.append(f"“{s_n}” → “{t_n}” ({lbl})")
+
+            # If target node of the question is already in graph, mark it as existing node confirmed
+            target_node = state.nodes.get(q.get("node_key"))
+            if target_node:
+                t_name = target_node.get("name")
+                if t_name and t_name not in added_nodes and t_name not in duplicate_nodes:
+                    duplicate_nodes.append(t_name)
+
+            base_ack = (analysis.get("ack") or "").strip()
+            if base_ack:
+                import re
+                base_ack = re.sub(r"\s*\([^)]*(?:already exist|duplicate nodes|no duplicate|Dynamically updated|I reviewed)[^)]*\)", "", base_ack).strip()
+            else:
+                base_ack = "Noted and processed."
+
+            change_details = []
+            if added_nodes:
+                change_details.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes])}")
+            if added_edges:
+                change_details.append(f"🔗 New Relationship Built: {', '.join(added_edges)}")
+            if updated_nodes:
+                change_details.append(f"📝 Entity Updated: {', '.join(updated_nodes)}")
+            if duplicate_nodes:
+                change_details.append(f"⚠️ Existing Node Detected (Duplicate avoided): {', '.join([f'“{n}”' for n in duplicate_nodes])}")
+            if duplicate_edges:
+                change_details.append(f"⚠️ Existing Relationship Detected (Duplicate avoided): {', '.join(duplicate_edges)}")
+
+            if change_details:
+                ack = base_ack + "\n\n" + "\n".join(change_details)
+            elif ops:
+                ack = base_ack + f"\n\n• Knowledge graph updated ({len(ops)} change{'s' if len(ops) != 1 else ''} applied)."
+            else:
+                ack = base_ack
 
             self.convs.add_message(conv["id"], "assistant", ack, "ack",
                                    {"question_id": q["id"], "ops": len(ops), "engine": "rule-based" if fallback else self.engine,
@@ -359,8 +488,9 @@ class ChatService:
                 conv = self.convs.get(user_id, wf["id"])
                 asked = self._ask_next(user_id, wf, domain, conv)
                 if not asked:
+                    answered_count = sum(1 for q_item in self.convs.questions(conv["id"]) if q_item["status"] in ("answered", "skipped") and not q_item["is_followup"])
                     self.convs.add_message(conv["id"], "assistant",
-                                           "Interview Complete (10/10 questions answered)! Your Knowledge Graph has been fully tailored and enriched with your business insights. You can continue asking questions using the Graph Copilot anytime.",
+                                           f"Domain Discovery Complete! Based on our dialogue, your Knowledge Graph for “{domain['name']}” has been tailored with your business nuances ({answered_count} question{'s' if answered_count != 1 else ''} explored). You can continue asking questions or exploring nodes using the Graph Copilot anytime.",
                                            "system", {"plan_complete": True})
 
         return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
@@ -402,6 +532,7 @@ class ChatService:
                         "Analyze the client's answer against the active graph. Return JSON:\n"
                         "{\n"
                         "  \"acknowledgement\": \"Short sentence summarizing what was understood and changed\",\n"
+                        "  \"duplicate_entities_found\": [\"names of any entities mentioned by user that already exist in ACTIVE_GRAPH_NODES so no duplicate node is added\"],\n"
                         "  \"followup\": null,\n"
                         "  \"ops\": [\n"
                         "     {\"op\": \"...\", \"payload\": {...}, \"rationale\": \"short explanation\"}\n"
@@ -414,15 +545,64 @@ class ChatService:
                 clean_ops = []
                 for o in raw_ops:
                     if isinstance(o, dict) and o.get("op") in OPS:
+                        payload = dict(o.get("payload") or {})
+                        op_type = o.get("op")
+                        if op_type in ("update_node", "remove_node"):
+                            nk = payload.get("node_key") or q.get("node_key")
+                            resolved = state.find(nk) or (state.find(q.get("node_key")) if q.get("node_key") else None)
+                            if resolved:
+                                payload["node_key"] = resolved
+
+                            if op_type == "update_node":
+                                raw_attrs = payload.pop("attributes", None)
+                                if raw_attrs:
+                                    if isinstance(raw_attrs, dict):
+                                        new_attrs = [str(k) for k in raw_attrs.keys()]
+                                        notes_from_dict = [f"{k}: {v}" for k, v in raw_attrs.items() if v]
+                                        if notes_from_dict:
+                                            payload["append_note"] = (payload.get("append_note") or "") + ("\n" if payload.get("append_note") else "") + "; ".join(notes_from_dict)
+                                    elif isinstance(raw_attrs, list):
+                                        new_attrs = [str(x) for x in raw_attrs]
+                                    else:
+                                        new_attrs = []
+                                    payload.setdefault("add_attributes", []).extend(new_attrs)
+
+                                if not payload.get("add_attributes") and not payload.get("append_note") and text:
+                                    payload["append_note"] = text[:300]
+                        elif op_type in ("add_edge", "remove_edge"):
+                            src_ref = payload.get("source") or q.get("node_key")
+                            tgt_ref = payload.get("target")
+                            src = state.find(src_ref) or (state.find(q.get("node_key")) if q.get("node_key") else None)
+                            tgt = state.find(tgt_ref) if tgt_ref else None
+                            if src and tgt_ref and not tgt:
+                                tgt_name = clean_text(tgt_ref, 120)
+                                tgt_key = slugify(tgt_name, "client-")
+                                clean_ops.append({
+                                    "op": "add_node",
+                                    "payload": {
+                                        "name": tgt_name,
+                                        "node_key": tgt_key,
+                                        "kind": "entity",
+                                        "definition": f"Client entity: {tgt_name}.",
+                                        "attributes": [],
+                                        "formulas": []
+                                    },
+                                    "rationale": f"Auto-created entity '{tgt_name}' to complete relationship."
+                                })
+                                tgt = tgt_key
+                            if src and tgt:
+                                payload["source"] = src
+                                payload["target"] = tgt
                         clean_ops.append({
-                            "op": o.get("op"),
-                            "payload": o.get("payload") or {},
+                            "op": op_type,
+                            "payload": payload,
                             "rationale": o.get("rationale") or "Derived dynamically from user interview response."
                         })
                 return {
                     "ops": clean_ops,
                     "followup": clean_text(out.get("followup"), 400) or None,
                     "ack": clean_text(out.get("acknowledgement"), 400),
+                    "duplicate_nodes": [clean_text(x, 120) for x in (out.get("duplicate_entities_found") or []) if clean_text(x, 120)],
                     "skipped": False
                 }, None
             except LLMError as e:

@@ -2,13 +2,41 @@
 from ..db import Session, jload
 
 
+def _clean_str(s):
+    if not isinstance(s, str):
+        return s
+    return (s.replace("â€“", "—")
+             .replace("â€”", "—")
+             .replace("â€\"", "—")
+             .replace("â€\x9d", "\"")
+             .replace("â€\x9c", "\"")
+             .replace("â€˜", "'")
+             .replace("â€™", "'")
+             .replace("â€œ", "\"")
+             .replace("Ã—", "×")
+             .replace("â†’", "→")
+             .replace("âˆ’", "-")
+             .replace("Ã·", "/")
+             .replace("Â§", "§")
+             .replace("Â", ""))
+
+
 def _node(r):
     if not r:
         return None
     r = dict(r)
-    r["attributes"] = jload(r["attributes"], [])
-    r["formulas"] = jload(r["formulas"], [])
-    r["canon_attributes"] = jload(r.get("canon_attributes"), [])
+    if "name" in r:
+        r["name"] = _clean_str(r["name"])
+    if "definition" in r:
+        r["definition"] = _clean_str(r["definition"])
+    raw_attrs = jload(r.get("attributes"), [])
+    r["attributes"] = [_clean_str(a) if isinstance(a, str) else a for a in raw_attrs]
+    raw_forms = jload(r.get("formulas"), [])
+    r["formulas"] = [_clean_str(f) if isinstance(f, str) else f for f in raw_forms]
+    raw_canon = jload(r.get("canon_attributes"), [])
+    r["canon_attributes"] = [_clean_str(c) if isinstance(c, str) else c for c in raw_canon]
+    if "evidence" in r:
+        r["evidence"] = _clean_str(r["evidence"])
     return r
 
 
