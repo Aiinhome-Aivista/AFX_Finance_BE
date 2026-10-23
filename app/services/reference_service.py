@@ -39,9 +39,10 @@ class ReferenceService:
     # ------------------------------------------------------------------ graph
     @staticmethod
     def _public_node(n, role):
-        return {"key": n["node_key"], "name": n["name"], "group_key": n["group_key"], "group_name": n["group_name"],
-                "color": n["color"], "kind": n["kind"], "role": role, "definition": n["definition"],
-                "attributes": n["attributes"], "formulas": n["formulas"], "origin": "reference", "change_state": "unchanged"}
+        key = n.get("node_key") or n.get("key")
+        return {"key": key, "name": n.get("name") or key, "group_key": n.get("group_key", "general"), "group_name": n.get("group_name", ""),
+                "color": n.get("color", "#3b82f6"), "kind": n.get("kind", "entity"), "role": role, "definition": n.get("definition", ""),
+                "attributes": n.get("attributes") or [], "formulas": n.get("formulas") or [], "origin": n.get("origin", "reference"), "change_state": n.get("change_state", "unchanged")}
 
     def domain_graph(self, slug, neighbours=True):
         d = self.domain(slug)

@@ -155,8 +155,24 @@ class ReferenceRepository:
                             row = self.db.one("SELECT id FROM domains WHERE slug=%s OR slug=%s", (slug, normalized))
                             if row:
                                 domain_id = row.get("id")
-                        except Exception:
-                            pass
+                            else:
+                                # Auto-insert into MySQL so foreign key constraint never fails
+                                target_slug = d.get("slug") or slug
+                                self.db.execute("SET @kg0_seeding = 1")
+                                self.db.execute(
+                                    """INSERT INTO domains(code,slug,name,description,scope,color,sort_order,knowledge,knowledge_evidence)
+                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                       ON DUPLICATE KEY UPDATE slug=VALUES(slug)""",
+                                    (d.get("code", slug[:4].upper()), target_slug, d.get("name", slug), d.get("description", ""),
+                                     d.get("scope", ""), d.get("color", "#2563EB"), d.get("sort_order", 0),
+                                     jdump(d.get("knowledge", {})), d.get("knowledge_evidence", ""))
+                                )
+                                self.db.execute("SET @kg0_seeding = 0")
+                                row = self.db.one("SELECT id FROM domains WHERE slug=%s OR slug=%s", (slug, normalized))
+                                if row:
+                                    domain_id = row.get("id")
+                        except Exception as ex:
+                            log.warning("Auto-sync domain %s to MySQL failed: %s", slug, ex)
                     if not domain_id:
                         domain_id = DOMAIN_SLUG_TO_ID.get(d.get("slug")) or DOMAIN_SLUG_TO_ID.get(slug)
                     d["id"] = domain_id if domain_id is not None else d.get("slug")
@@ -183,13 +199,27 @@ class ReferenceRepository:
             try:
                 # domain_id can be slug or numeric id
                 slug = str(domain_id)
+                mapped_slug = None
+                if slug.isdigit():
+                    if self.db:
+                        try:
+                            row = self.db.one("SELECT slug FROM domains WHERE id=%s", (int(slug),))
+                            if row:
+                                mapped_slug = row.get("slug")
+                        except Exception:
+                            pass
+                    if not mapped_slug:
+                        id_to_slug = {v: k for k, v in DOMAIN_SLUG_TO_ID.items()}
+                        mapped_slug = id_to_slug.get(int(slug))
+
                 res = self.arango.query(
                     """
                     FOR dn IN domain_nodes
                       FILTER dn.domain_slug == @slug OR dn.domain_id == @slug
+                             OR dn.domain_slug == @mapped OR dn.domain_id == @mapped
                       RETURN {node_key: dn.node_key, role: dn.role}
                     """,
-                    {"slug": slug}
+                    {"slug": slug, "mapped": mapped_slug or slug}
                 )
                 if res:
                     return {r["node_key"]: r["role"] for r in res}
@@ -198,8 +228,13 @@ class ReferenceRepository:
 
         # 2. Fallback to MySQL
         if self.db:
-            return {r["node_key"]: r["role"] for r in
-                    self.db.query("SELECT node_key, role FROM domain_nodes WHERE domain_id=%s", (domain_id,))}
+            rows = self.db.query("SELECT node_key, role FROM domain_nodes WHERE domain_id=%s", (domain_id,))
+            if not rows and str(domain_id).isdigit():
+                id_to_slug = {v: k for k, v in DOMAIN_SLUG_TO_ID.items()}
+                mapped_slug = id_to_slug.get(int(domain_id))
+                if mapped_slug:
+                    rows = self.db.query("SELECT node_key, role FROM domain_nodes WHERE domain_id=%s", (mapped_slug,))
+            return {r["node_key"]: r["role"] for r in rows}
         return {}
 
     def domain_node_counts(self):
@@ -221,6 +256,9 @@ class ReferenceRepository:
                     out = {}
                     for r in res:
                         out.setdefault(r["domain"], {})[r["role"]] = r["count"]
+                        did = DOMAIN_SLUG_TO_ID.get(r["domain"])
+                        if did is not None:
+                            out.setdefault(did, {})[r["role"]] = r["count"]
                     _cached_counts = out
                     return out
             except Exception as e:

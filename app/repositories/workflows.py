@@ -6,14 +6,28 @@ class WorkflowRepository:
         self.db = db
 
     def _resolve_domain_id(self, domain_id):
-        if isinstance(domain_id, int):
-            return domain_id
-        if isinstance(domain_id, str):
-            if domain_id.isdigit():
-                return int(domain_id)
+        # 1. If it's a slug string, lookup id by slug
+        if isinstance(domain_id, str) and not domain_id.isdigit():
             row = self.db.one("SELECT id FROM domains WHERE slug=%s", (domain_id,))
             if row and row.get("id"):
                 return row["id"]
+
+        # 2. If it's numeric, check if this id exists in domains table
+        num_id = int(domain_id) if str(domain_id).isdigit() else None
+        if num_id is not None:
+            row = self.db.one("SELECT id FROM domains WHERE id=%s", (num_id,))
+            if row and row.get("id"):
+                return row["id"]
+
+            # If not found directly, map static ID (1-8) to known slug and find real DB id
+            from .reference import DOMAIN_SLUG_TO_ID
+            id_to_slug = {v: k for k, v in DOMAIN_SLUG_TO_ID.items()}
+            mapped_slug = id_to_slug.get(num_id)
+            if mapped_slug:
+                row = self.db.one("SELECT id FROM domains WHERE slug=%s", (mapped_slug,))
+                if row and row.get("id"):
+                    return row["id"]
+
         return domain_id
 
     def get(self, user_id, domain_id):

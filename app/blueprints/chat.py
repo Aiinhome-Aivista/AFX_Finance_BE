@@ -65,3 +65,11 @@ def propose(slug):
     out = _svc().propose(g.user_id, domain)
     audit("chat.propose", "proposal", (out.get("proposal") or {}).get("id"))
     return jsonify(out)
+
+
+@bp.post("/decision")
+@auth_required
+def session_decision(slug):
+    domain, _ = domain_ctx(slug)
+    d = json_body()
+    return jsonify(_svc().decide_session(g.user_id, domain, d.get("action")))

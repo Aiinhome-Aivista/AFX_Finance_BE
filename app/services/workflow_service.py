@@ -33,8 +33,8 @@ class WorkflowService:
     # ---- step 2
     def start(self, user_id, domain):
         u = self.users.by_id(user_id)
-        if u["selected_app"] != "finance":
-            raise WorkflowError("Step 1 first: select the Finance application.")
+        if u and u.get("selected_app") != "finance":
+            self.users.set_selected_app(user_id, "finance")
         wf = self.repo.get(user_id, domain["id"])
         if not wf:
             self.repo.create(user_id, domain["id"])

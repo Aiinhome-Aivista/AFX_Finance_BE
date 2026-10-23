@@ -134,8 +134,10 @@ class ChatService:
         qs = self.convs.questions(conv["id"])
         open_q = next((q for q in reversed(qs) if q["status"] == "asked"), None)
         answered = sum(1 for q in qs if q["status"] in ("answered", "skipped") and not q["is_followup"])
+        last_msg = msgs[-1] if msgs else {}
+        awaiting_decision = bool((last_msg.get("meta") or {}).get("awaiting_session_decision"))
         has_completion_flag = any((m.get("meta") or {}).get("plan_complete") for m in msgs)
-        plan_complete = bool(open_q is None and (has_completion_flag or answered > 0))
+        plan_complete = bool(open_q is None and not awaiting_decision and has_completion_flag)
         pending_ops = sum(len(q["extracted_ops"]) for q in qs if q["status"] == "answered" and not q["proposed"])
 
         res = {
@@ -151,8 +153,10 @@ class ChatService:
             "progress": {
                 "answered": answered,
                 "planned": None,
-                "plan_complete": plan_complete
+                "plan_complete": plan_complete,
+                "awaiting_session_decision": awaiting_decision,
             },
+            "awaiting_session_decision": awaiting_decision,
             "pending_change_count": pending_ops,
             "engine": self.engine,
             "llm_enabled": bool(self.llm),
@@ -163,7 +167,7 @@ class ChatService:
             res["graph_updated"] = True
         return res
 
-    def _generate_dynamic_question(self, domain, state, qs):
+    def _generate_dynamic_question(self, domain, state, qs, force=False):
         """Generates the next contextual finance interview question using the LLM and the active graph state,
         or dynamically decides to complete when the domain is sufficiently tailored."""
         past_qa = []
@@ -189,7 +193,7 @@ class ChatService:
             f"EVALUATION & INTERVIEW RULES:\n"
             f"1. You are NOT bound to a fixed number of questions (there is no 10-question requirement).\n"
             f"2. Dynamically evaluate whether the entities, relationships, attributes, and formulas for “{domain['name']}” are already sufficiently tailored and clear based on the active graph and previous dialogue.\n"
-            f"3. If the domain context is sufficiently understood or the core customizations have been addressed, mark the interview complete (complete: true).\n"
+            f"3. {'The user has explicitly asked to continue exploring deeper nuances. Find an unexplored entity, connection, or rule and ask a question. Do NOT complete.' if force else 'If the domain context is sufficiently understood or the core customizations have been addressed, mark the interview complete (complete: true).'}\n"
             f"4. If a further question is needed to clarify an important unexplored aspect of this domain (e.g. custom organizational hierarchies, specific gross-to-net deductions, variance tracking, or calculation formulas):\n"
             f"   - Ground the question deeply in the active entities, attributes, formulas, or connections shown above.\n"
             f"   - Pick an entity or process area that hasn't been thoroughly explored yet.\n"
@@ -214,7 +218,7 @@ class ChatService:
         if self.llm:
             try:
                 out = self.llm.complete_json(sys_prompt, json.dumps(user_prompt, ensure_ascii=False), max_tokens=600)
-                if out.get("complete") is True and question_idx > 1:
+                if out.get("complete") is True and question_idx > 1 and not force:
                     log.info("LLM concluded domain interview for %s after %d questions: %s", domain["name"], question_idx - 1, out.get("reason"))
                     return None, None, None
 
@@ -225,13 +229,13 @@ class ChatService:
                 topic = out.get("topic") or "attributes"
                 if q_text and len(q_text) >= 15:
                     return q_text, node_key, topic
-                elif out.get("complete") is True:
+                elif out.get("complete") is True and not force:
                     return None, None, None
             except Exception as e:
                 log.warning("LLM dynamic question generation failed: %s", e)
 
-        # Fallback question based on unvisited nodes in graph (only if <= 5 questions answered)
-        if question_idx > 5:
+        # Fallback question based on unvisited nodes in graph (only if <= 5 questions answered or force is True)
+        if question_idx > 5 and not force:
             return None, None, None
 
         candidates = [k for k in state.nodes if k not in {q.get("node_key") for q in qs}] or list(state.nodes.keys())
@@ -241,16 +245,16 @@ class ChatService:
         fb_q = self._question_text(domain, state, target, chosen_topic)
         return fb_q, target, chosen_topic
 
-    def _ask_next(self, user_id, wf, domain, conv):
+    def _ask_next(self, user_id, wf, domain, conv, force=False):
         """Ask the next dynamic question grounded in active graph. Returns True if a question was asked."""
         _, state = self.graphs.working(user_id, wf, domain)
         qs = self.convs.questions(conv["id"])
         answered = sum(1 for q in qs if q["status"] in ("answered", "skipped") and not q["is_followup"])
-        if answered >= 15:
+        if answered >= 25 and not force:
             return False
 
         seq = (qs[-1]["seq"] if qs else 0) + 1
-        text, node_key, topic = self._generate_dynamic_question(domain, state, qs)
+        text, node_key, topic = self._generate_dynamic_question(domain, state, qs, force=force)
         if not text:
             return False
 
@@ -488,12 +492,57 @@ class ChatService:
                 conv = self.convs.get(user_id, wf["id"])
                 asked = self._ask_next(user_id, wf, domain, conv)
                 if not asked:
-                    answered_count = sum(1 for q_item in self.convs.questions(conv["id"]) if q_item["status"] in ("answered", "skipped") and not q_item["is_followup"])
-                    self.convs.add_message(conv["id"], "assistant",
-                                           f"Domain Discovery Complete! Based on our dialogue, your Knowledge Graph for “{domain['name']}” has been tailored with your business nuances ({answered_count} question{'s' if answered_count != 1 else ''} explored). You can continue asking questions or exploring nodes using the Graph Copilot anytime.",
-                                           "system", {"plan_complete": True})
+                    msgs = self.convs.messages(conv["id"])
+                    last_msg = msgs[-1] if msgs else {}
+                    already_deciding = bool((last_msg.get("meta") or {}).get("awaiting_session_decision"))
+                    already_complete = any((m.get("meta") or {}).get("plan_complete") for m in msgs)
+                    if not already_deciding and not already_complete:
+                        self.convs.add_message(
+                            conv["id"],
+                            "assistant",
+                            f"We've covered the core processes for “{domain['name']}”. Do you want to continue exploring further nuances or proceed to review?",
+                            "decision",
+                            {"awaiting_session_decision": True}
+                        )
 
         return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
+
+    def decide_session(self, user_id, domain, action):
+        """Handle user choice to continue exploring or proceed to review."""
+        wf = self._wf(user_id, domain)
+        conv = self.convs.get(user_id, wf["id"])
+        if not conv:
+            return self.get(user_id, domain)
+
+        action = (action or "").strip().lower()
+        last_id = self.convs.messages(conv["id"])[-1]["id"] if self.convs.messages(conv["id"]) else 0
+
+        with self.db.transaction():
+            if action == "continue":
+                self.convs.add_message(conv["id"], "user", "Continue exploring", "answer")
+                asked = self._ask_next(user_id, wf, domain, conv, force=True)
+                if not asked:
+                    _, state = self.graphs.working(user_id, wf, domain)
+                    qs = self.convs.questions(conv["id"])
+                    seq = (qs[-1]["seq"] if qs else 0) + 1
+                    target = list(state.nodes.keys())[0] if state.nodes else "domain"
+                    node_name = state.nodes[target]["name"] if target in state.nodes else target
+                    q_text = f"What specific exceptions, custom accounting treatments, or business rules apply to “{node_name}” in your setup?"
+                    qid = self.convs.add_question(conv["id"], seq, target, "rules", q_text)
+                    self.convs.add_message(conv["id"], "assistant", q_text, "question",
+                                           {"question_id": qid, "node_key": target, "topic": "rules"})
+            else:
+                self.convs.add_message(conv["id"], "user", "Proceed to review", "answer")
+                answered_count = sum(1 for q_item in self.convs.questions(conv["id"]) if q_item["status"] in ("answered", "skipped") and not q_item["is_followup"])
+                self.convs.add_message(
+                    conv["id"],
+                    "assistant",
+                    f"Domain Discovery Complete! Based on our dialogue, your Knowledge Graph for “{domain['name']}” has been tailored with your business nuances ({answered_count} question{'s' if answered_count != 1 else ''} explored). You can now review the proposed graph changes.",
+                    "system",
+                    {"plan_complete": True}
+                )
+
+        return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
 
     def _analyze(self, domain, state, q, text):
         """Analyze client answer with LLM to extract graph nodes, attributes, and relationships with duplicate prevention."""
@@ -629,7 +678,7 @@ class ChatService:
         selected_ctx = self._node_ctx(state, node_key) if node_key and node_key in state.nodes else None
 
         sys_prompt = (
-            f"You are the Finance Knowledge Graph Copilot for “{domain['name']}”.\n"
+            f"You are the Finance Knowledge Graph Assistant for “{domain['name']}”.\n"
             f"You are grounded strictly in the user's active Knowledge Graph below:\n\n"
             f"ACTIVE KNOWLEDGE GRAPH ENTITIES ({g_ctx['entity_count']}):\n{g_ctx['entities_text']}\n\n"
             f"ACTIVE RELATIONSHIPS ({g_ctx['relationship_count']}):\n{g_ctx['relationships_text']}\n\n"

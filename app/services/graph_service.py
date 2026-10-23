@@ -29,23 +29,25 @@ class GraphService:
         self.ref = ReferenceService(db)
         self.wfs = WorkflowService(db)
 
-    # ------------------------------------------------------------------ read
     def _baseline(self, domain, wf):
+        if not wf.get("selected_blocks"):
+            default_b = [b["id"] for b in self.ref.blocks(domain["slug"]) if b.get("default")] or ["core", "shared"]
+            try:
+                self.wfs.confirm_blocks(wf["user_id"], domain, default_b)
+            except Exception:
+                pass
+            wf["selected_blocks"] = default_b
         return self.ref.baseline(domain["slug"], wf["selected_blocks"])
 
     def working(self, user_id, wf, domain):
         """(version_number, GraphState): the latest client version, or the KG0 baseline when none exists yet."""
         latest = self.graphs.latest(user_id, wf["id"])
         if not latest:
-            if not wf["selected_blocks"]:
-                raise ValidationError("Choose the blocks to customise first (step 3).")
             return 0, self._baseline(domain, wf)
         return latest["version_number"], GraphState.from_lists(self.graphs.nodes(latest["id"]), self.graphs.edges(latest["id"]))
 
     def state_of(self, user_id, wf, domain, number):
         if number == 0:
-            if not wf["selected_blocks"]:
-                raise ValidationError("Choose the blocks to customise first (step 3).")
             return self._baseline(domain, wf)
         v = self.graphs.version(user_id, wf["id"], number)
         if not v:
