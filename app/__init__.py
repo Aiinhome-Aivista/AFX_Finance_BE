@@ -1,6 +1,6 @@
 import logging
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
 
 from .config import Config
@@ -15,9 +15,30 @@ def create_app(config: Config | None = None, llm_factory=None) -> Flask:
     app.config["APP_CONFIG"] = cfg
     app.config["MAX_CONTENT_LENGTH"] = (cfg.MAX_UPLOAD_MB + 2) * 1024 * 1024
     app.config["JSON_SORT_KEYS"] = False
+    try:
+        app.json.sort_keys = False
+    except Exception:
+        pass
     logging.basicConfig(level=logging.INFO)
-    CORS(app, origins=cfg.CORS_ORIGINS, allow_headers=["Content-Type", "Authorization"],
-         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
+
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            res = make_response()
+            res.headers["Access-Control-Allow-Origin"] = "*"
+            res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            return res, 204
+
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        return response
+
     app.extensions["llm"] = llm_factory() if llm_factory else build_provider(cfg)
 
     from .blueprints import auth, chat, domains, files, graphs, workflow
@@ -39,12 +60,15 @@ def create_app(config: Config | None = None, llm_factory=None) -> Flask:
         if not target_file.exists() and filename.endswith(".html"):
             slug = filename[:-5]
             try:
-                from .db import get_db
                 from .services.reference_service import ReferenceService
                 from .services.html_graph_service import HTMLGraphService
-                ref = ReferenceService(get_db())
-                gdata = ref.domain_graph(slug, neighbours=True)
-                HTMLGraphService.save_html(slug, gdata.get("domain", {}), gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
+                ref = ReferenceService()
+                if slug in ("finance-overview", "overview"):
+                    gdata = ref.overview_graph()
+                    HTMLGraphService.save_html(slug, {"name": "Finance Knowledge Graph (Overview)", "color": "#2563EB"}, gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
+                else:
+                    gdata = ref.domain_graph(slug, neighbours=True)
+                    HTMLGraphService.save_html(slug, gdata.get("domain", {}), gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
             except Exception as err:
                 logging.getLogger(__name__).warning("On-the-fly HTML graph generation failed for %s: %s", filename, err)
         return send_from_directory(graph_dir, filename)

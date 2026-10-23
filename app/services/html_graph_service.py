@@ -249,34 +249,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
   <div id="network-container"></div>
 
-  <!-- Domain Header -->
-  <div class="domain-badge">
-    <div class="domain-dot"></div>
-    <span class="domain-title">{domain_name}</span>
-    <span class="domain-stats">({node_count} nodes &middot; {edge_count} edges)</span>
-  </div>
-
-  <!-- Action Controls -->
-  <div class="toolbar">
-    <button class="tool-btn" id="btn-fit" title="Fit to Screen">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-      Fit
-    </button>
-    <button class="tool-btn" id="btn-zoom-in" title="Zoom In">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-    </button>
-    <button class="tool-btn" id="btn-zoom-out" title="Zoom Out">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-    </button>
-    <button class="tool-btn active" id="btn-physics" title="Toggle Physics">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-      Physics
-    </button>
-  </div>
-
-  <!-- Groups Legend -->
-  <div class="legend" id="legend"></div>
-
   <!-- Inspector Card -->
   <div class="inspector" id="inspector">
     <div class="inspector-header">
@@ -301,20 +273,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const rawNodes = {nodes_json};
     const rawEdges = {edges_json};
 
-    // Build Legend
+    // Build Legend (if element exists)
     const legendEl = document.getElementById('legend');
-    const groupMap = new Map();
-    rawNodes.forEach(n => {{
-      if (n.group_name && !groupMap.has(n.group_name)) {{
-        groupMap.set(n.group_name, n.color || '{domain_color}');
-      }}
-    }});
-    groupMap.forEach((color, name) => {{
-      const item = document.createElement('div');
-      item.className = 'legend-item';
-      item.innerHTML = `<span class="legend-color" style="background:${{color}};box-shadow:0 0 6px ${{color}}"></span><span>${{name}}</span>`;
-      legendEl.appendChild(item);
-    }});
+    if (legendEl) {
+      const groupMap = new Map();
+      rawNodes.forEach(n => {{
+        if (n.group_name && !groupMap.has(n.group_name)) {{
+          groupMap.set(n.group_name, n.color || '{domain_color}');
+        }}
+      }});
+      groupMap.forEach((color, name) => {{
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<span class="legend-color" style="background:${{color}};box-shadow:0 0 6px ${{color}}"></span><span>${{name}}</span>`;
+        legendEl.appendChild(item);
+      }});
+    }
 
     // Transform Nodes for Vis.js (White / Light Theme)
     const visNodes = rawNodes.map(n => {{
@@ -502,28 +476,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }}
     }});
 
-    // Toolbar handlers
-    document.getElementById('btn-fit').onclick = () => {{
-      network.fit({{ animation: {{ duration: 600, easingFunction: 'easeInOutQuad' }} }});
-    }};
+    // Toolbar handlers (if present)
+    const fitBtn = document.getElementById('btn-fit');
+    if (fitBtn) {
+      fitBtn.onclick = () => {{
+        network.fit({{ animation: {{ duration: 600, easingFunction: 'easeInOutQuad' }} }});
+      }};
+    }
 
-    document.getElementById('btn-zoom-in').onclick = () => {{
-      const scale = network.getScale() * 1.3;
-      network.moveTo({{ scale: scale, animation: {{ duration: 300 }} }});
-    }};
+    const zoomInBtn = document.getElementById('btn-zoom-in');
+    if (zoomInBtn) {
+      zoomInBtn.onclick = () => {{
+        const scale = network.getScale() * 1.3;
+        network.moveTo({{ scale: scale, animation: {{ duration: 300 }} }});
+      }};
+    }
 
-    document.getElementById('btn-zoom-out').onclick = () => {{
-      const scale = network.getScale() * 0.7;
-      network.moveTo({{ scale: scale, animation: {{ duration: 300 }} }});
-    }};
+    const zoomOutBtn = document.getElementById('btn-zoom-out');
+    if (zoomOutBtn) {
+      zoomOutBtn.onclick = () => {{
+        const scale = network.getScale() * 0.7;
+        network.moveTo({{ scale: scale, animation: {{ duration: 300 }} }});
+      }};
+    }
 
     let physicsEnabled = true;
     const physicsBtn = document.getElementById('btn-physics');
-    physicsBtn.onclick = () => {{
-      physicsEnabled = !physicsEnabled;
-      network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
-      physicsBtn.classList.toggle('active', physicsEnabled);
-    }};
+    if (physicsBtn) {
+      physicsBtn.onclick = () => {{
+        physicsEnabled = !physicsEnabled;
+        network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
+        physicsBtn.classList.toggle('active', physicsEnabled);
+      }};
+    }
 
     // Settle physics after initial stabilization
     network.once('stabilizationIterationsDone', function() {{
@@ -531,7 +516,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       // Gently turn off continuous physics to save CPU
       setTimeout(() => {{
         network.setOptions({{ physics: {{ enabled: false }} }});
-        physicsBtn.classList.remove('active');
+        if (physicsBtn) physicsBtn.classList.remove('active');
         physicsEnabled = false;
       }}, 1200);
     }});

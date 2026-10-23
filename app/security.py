@@ -52,3 +52,24 @@ def auth_required(fn):
         return fn(*a, **kw)
 
     return wrapper
+
+
+def auth_optional(fn):
+    """Allows authenticated or unauthenticated access. Sets g.user_id if token is present and valid."""
+
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        g.user_id = None
+        g.token_claims = None
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            try:
+                claims = decode_token(header[7:])
+                g.user_id = int(claims.get("sub", 0)) or None
+                g.token_claims = claims
+            except Exception:
+                pass
+        return fn(*a, **kw)
+
+    return wrapper
+

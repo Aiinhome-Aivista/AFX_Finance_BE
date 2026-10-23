@@ -1,7 +1,7 @@
 from flask import Blueprint, g, jsonify, request
 
 from ..db import get_db
-from ..security import auth_required
+from ..security import auth_optional, auth_required
 from ..services.reference_service import ReferenceService
 from ..services.workflow_service import WorkflowService
 from ._helpers import audit, json_body
@@ -34,6 +34,40 @@ def list_domains():
     db = get_db()
     return jsonify({"domains": ReferenceService(db).list_domains(request.args.get("q")),
                     "progress": WorkflowService(db).overview(g.user_id)})
+
+
+@bp.get("/ontology/overview-graph")
+@bp.get("/overview-graph")
+@auth_optional
+def overview_graph():
+    """Returns the complete dynamic finance ontology overview graph from ArangoDB / database."""
+    ref = ReferenceService()
+    res = ref.overview_graph()
+    base_url = "http://127.0.0.1:5000"
+    overview_url = f"{base_url}/api/graphs/finance-overview.html"
+    for d in res.get("domains", []):
+        slug = d.get("slug")
+        if slug:
+            d["graph_url"] = f"{base_url}/api/graphs/{slug}.html"
+    progress = {}
+    if g.user_id:
+        try:
+            db = get_db()
+            progress = WorkflowService(db).overview(g.user_id)
+        except Exception:
+            pass
+
+    # Ensure graph_url is the very FIRST key in the response JSON
+    response_data = {
+        "graph_url": overview_url,
+        "counts": res.get("counts", {}),
+        "domains": res.get("domains", []),
+        "nodes": res.get("nodes", []),
+        "edges": res.get("edges", []),
+        "flows": res.get("flows", []),
+        "progress": progress,
+    }
+    return jsonify(response_data)
 
 
 @bp.get("/domains/<slug>")
@@ -75,6 +109,7 @@ def domain_graph(slug):
         graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
         html_url = HTMLGraphService.save_html(slug, res.get("domain", {}), res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
         res["html_url"] = html_url
+        res["graph_url"] = f"http://127.0.0.1:5000{html_url}"
     except Exception as e:
         pass
     return jsonify(res)
