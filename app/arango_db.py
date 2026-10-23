@@ -30,18 +30,18 @@ class ArangoHttpDriver:
             full_url = f"{self.url}{path}"
         else:
             full_url = f"{self.url}/_db/{target_db}{path}"
-        kwargs.setdefault("timeout", (4, 8))
+        kwargs.setdefault("timeout", (10, 20))
         
-        # Retry once on transient network connect timeouts
+        # Retry on transient network connect timeouts
         last_exc = None
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 resp = self.session.request(method, full_url, **kwargs)
                 return resp
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
                 last_exc = e
                 import time
-                time.sleep(0.3)
+                time.sleep(0.5)
         raise last_exc
 
     def ping(self):
@@ -78,6 +78,15 @@ class ArangoHttpDriver:
             return True
         except Exception as e:
             log.warning("Could not ensure collection %s: %s", name, e)
+            return False
+
+    def truncate_collection(self, name):
+        """Truncate (empty) a collection."""
+        try:
+            r = self._req("PUT", f"/_api/collection/{name}/truncate")
+            return r.status_code in (200, 201)
+        except Exception as e:
+            log.warning("Could not truncate collection %s: %s", name, e)
             return False
 
     def query(self, aql, bind_vars=None):

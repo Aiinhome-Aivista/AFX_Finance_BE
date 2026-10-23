@@ -20,7 +20,7 @@ DATA = Path(__file__).resolve().parent / "data" / "finance_kg0.json"
 
 def seed(cfg=None):
     cfg = cfg or Config.from_env()
-    d = json.loads(DATA.read_text())
+    d = json.loads(DATA.read_text(encoding="utf-8"))
     conn = connect(cfg)
     cur = conn.cursor()
     cur.execute("SET @kg0_seeding = 1")

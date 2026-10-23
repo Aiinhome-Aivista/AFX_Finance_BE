@@ -48,12 +48,16 @@ def seed_arango(cfg=None):
     # 1. Ensure Database exists
     driver.ensure_database()
 
-    # 2. Ensure Collections exist
-    driver.ensure_collection("kg_ref_nodes", is_edge=False)
-    driver.ensure_collection("kg_ref_edges", is_edge=True)
-    driver.ensure_collection("domains", is_edge=False)
-    driver.ensure_collection("flows", is_edge=False)
-    driver.ensure_collection("domain_nodes", is_edge=False)
+    # 2. Ensure Collections exist and clean old data
+    for col, is_edge in [
+        ("kg_ref_nodes", False),
+        ("kg_ref_edges", True),
+        ("domains", False),
+        ("flows", False),
+        ("domain_nodes", False),
+    ]:
+        driver.ensure_collection(col, is_edge=is_edge)
+        driver.truncate_collection(col)
 
     # 3. Read dataset
     data = json.loads(DATA_FILE.read_text(encoding="utf-8"))

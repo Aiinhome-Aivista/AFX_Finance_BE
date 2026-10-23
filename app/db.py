@@ -84,11 +84,19 @@ class Session:
 
 
 def connect(cfg, database=True):
-    return pymysql.connect(
-        host=cfg.DB_HOST, port=cfg.DB_PORT, user=cfg.DB_USER, password=cfg.DB_PASSWORD,
-        database=cfg.DB_NAME if database else None, charset="utf8mb4", cursorclass=DictCursor, autocommit=True,
-        connect_timeout=3,
-    )
+    import time
+    last_exc = None
+    for attempt in range(5):
+        try:
+            return pymysql.connect(
+                host=cfg.DB_HOST, port=cfg.DB_PORT, user=cfg.DB_USER, password=cfg.DB_PASSWORD,
+                database=cfg.DB_NAME if database else None, charset="utf8mb4", cursorclass=DictCursor, autocommit=True,
+                connect_timeout=8,
+            )
+        except pymysql.err.OperationalError as e:
+            last_exc = e
+            time.sleep(1)
+    raise last_exc
 
 
 def open_session(cfg):

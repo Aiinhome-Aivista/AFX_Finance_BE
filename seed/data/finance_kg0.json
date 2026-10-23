@@ -2941,274 +2941,6 @@
    "canon_title": "PlanningCoE / EPMOperatingModel",
    "canon_joins": "OrganizationNode, MetricDefinition (governance), AnalyticsUseCase. Evidence: global-brewer planning-CoE decks, tobacco major Approach for Planning COE, consolidation RFP SLAs.",
    "canon_evidence": "global-brewer planning-CoE decks, tobacco major Approach for Planning COE, consolidation RFP SLAs."
-  },
-  {
-   "key": "distributor",
-   "name": "Distributor / Wholesaler",
-   "group": "rtm",
-   "group_name": "01 Sales & Distribution (RtM)",
-   "color": "#2E6FCA",
-   "kind": "external",
-   "definition": "The indirect-RtM intermediary carrying the three sales flows: primary (manufacturer→distributor, sell-in), secondary (distributor→outlet, sell-out), tertiary (outlet→consumer).",
-   "attributes": [
-    "distributorId",
-    "type (WS/distributor, multi-layer)",
-    "marginStructure",
-    "warehouses[]",
-    "servedOutlets[]",
-    "dcRdcPlantMapping",
-    "creditLimit",
-    "receivables",
-    "pipelineStock",
-    "sellOutFeedStatus"
-   ],
-   "evidence": "food major TM&D analytics + a distributor-reporting platform RFP · bakery group / diversified manufacturer secondary-sales model · tobacco major DSS workstream",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "fund",
-   "name": "TradeFund / Checkbook",
-   "group": "trade",
-   "group_name": "02 Trade, Promotions & RGM",
-   "color": "#8A4FD0",
-   "kind": "external",
-   "definition": "Budget container mapped to GL codes with the lifecycle Budget → Planned → Committed → Expended → Free Balance (= budget − committed − expended); live accruals convert liability to expense on shipment; kept open ~1yr post plan-year.",
-   "attributes": [
-    "fundId",
-    "fundType (fixed/accrual)",
-    "parentChildWithReserve",
-    "spendCategories[]→glAccounts",
-    "freeBalance",
-    "liveAccrualForecast",
-    "closingWindow"
-   ],
-   "evidence": "consumer-products manufacturer Fund Management requirements · the TPM program checkbook design",
-   "formulas": [
-    "Free Balance = budget − committed − expended"
-   ],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "deduction",
-   "name": "Deduction",
-   "group": "trade",
-   "group_name": "02 Trade, Promotions & RGM",
-   "color": "#8A4FD0",
-   "kind": "external",
-   "definition": "AR event — customer short-pays an invoice; matched to deals via resolutions (deal/no-deal), performance date must fall inside the deal window, reason code ties to GL; small deductions auto write-off; repay link for invalid ones.",
-   "attributes": [
-    "deductionCode",
-    "amount",
-    "status",
-    "reasonCode→glAccount",
-    "resolutions[]",
-    "performanceDate",
-    "autoWriteOffThreshold",
-    "repayLink",
-    "erpRoundTrip"
-   ],
-   "evidence": "consumer-products manufacturer Deductions/Claims/Settlement requirements · TPM-program as-built",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "media",
-   "name": "Touchpoint / MediaSpend",
-   "group": "marketing",
-   "group_name": "03 Marketing & Consumer",
-   "color": "#C05A9E",
-   "kind": "external",
-   "definition": "Channel taxonomy (paid/owned/earned × ATL/BTL/TTL × digital × physical) and the Nielsen-style spend record: market → advertiser → category → product → media → network → outlet × period, with companion TRP data.",
-   "attributes": [
-    "channelClass (paid/owned/earned)",
-    "atlBtlTtl",
-    "mediaType",
-    "network",
-    "outlet (title/station)",
-    "spend",
-    "trp"
-   ],
-   "evidence": "oral-care major media-spend & TRP samples · Traditional ATL/BTL deck · MPM KPI catalogue",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "supplier",
-   "name": "Supplier / ProcurementCategory",
-   "group": "supply",
-   "group_name": "04 Supply Chain & Procurement",
-   "color": "#2FA096",
-   "kind": "external",
-   "definition": "Vendor master with OTIF, lead time, reject/waiver rates and scorecards; category taxonomy direct (raw materials, packaging, logistics) vs indirect & traded; savings initiatives with the pipeline identified → approved → budgeted → booked and the finance-to-procurement bridge.",
-   "attributes": [
-    "vendorId",
-    "categoryAssignment",
-    "otif",
-    "leadTime",
-    "rejectRate",
-    "waiverRate",
-    "concentrationShare",
-    "scorecard",
-    "savingsPipelineStage",
-    "commodityPriceVsBudget",
-    "contractCoverage"
-   ],
-   "evidence": "bakery group procurement org + dashboard vision · strategy consultancy digital-procurement booklet (12 use cases)",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "inventory",
-   "name": "InventoryPosition / Policy",
-   "group": "supply",
-   "group_name": "04 Supply Chain & Procurement",
-   "color": "#2FA096",
-   "kind": "external",
-   "definition": "Position per SKU × location (net stock, open orders, inbound STOs, days of supply) and MEIO-optimized policy: segmentation → service targets → optimization minimizing carrying + lost-sales + replenishment cost; slow-moving (>18d) and remnant (>90d) flags.",
-   "attributes": [
-    "totalStock",
-    "netStockAvailable",
-    "openSalesOrders",
-    "pendingInboundStos",
-    "businessDaysOfSupply",
-    "segmentation",
-    "serviceLevelTarget",
-    "safetyStock",
-    "strategy (MTS/MTO/VMI)",
-    "slowMovingFlag",
-    "remnantFlag"
-   ],
-   "evidence": "MEIO framework (Anaplan deck) · HPC major SMR reports & stock classes",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "orders",
-   "name": "SupplyOrders (SO/STO/PO/Shipment)",
-   "group": "supply",
-   "group_name": "04 Supply Chain & Procurement",
-   "color": "#2FA096",
-   "kind": "external",
-   "definition": "The transactional movement objects: sales orders, stock transfer orders, purchase orders (PO vs non-PO), shipments with carriers and late-reason categories, trailer loads, pallets, invoices (3-way match).",
-   "attributes": [
-    "salesOrder",
-    "stockTransferOrder",
-    "transferOrder",
-    "purchaseOrder",
-    "shipment (carrier, lateReason)",
-    "trailerLoad",
-    "pallet",
-    "invoice (3-way match)"
-   ],
-   "evidence": "HPC major SC metric model & information model",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "prodorder",
-   "name": "ProductionOrder / BOM",
-   "group": "mfg",
-   "group_name": "05 Manufacturing & Quality",
-   "color": "#A0784A",
-   "kind": "external",
-   "definition": "The make event: planned vs actual quantity, TECO timestamp (→ production lead time), yield, verbatim variance formulas (labour efficiency, material usage/price); BOM with costing and the 42-day on-time release rule.",
-   "attributes": [
-    "orderId",
-    "plannedQty/actualQty",
-    "tecoTimestamp",
-    "productionLeadTime",
-    "yield",
-    "varianceSet",
-    "bom: costedFlag",
-    "releaseWindow (42-day)",
-    "bomAccuracy"
-   ],
-   "evidence": "HPC major manufacturing metric model · quality scorecard",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "benchmark",
-   "name": "BenchmarkPeerSet / CategorySegment",
-   "group": "ecom",
-   "group_name": "08 E-commerce, D2C & Strategy",
-   "color": "#D08A3E",
-   "kind": "external",
-   "definition": "Strategy objects: peer benchmarking (financial levers, operations KPIs, project-level process benchmarking) and category segmentation with per-segment CAGR, share and decline drivers.",
-   "attributes": [
-    "peerSet",
-    "financialLevers[]",
-    "method (financial/operations/process)",
-    "market→category→segment",
-    "segmentCagr",
-    "volumeShare",
-    "declineDrivers"
-   ],
-   "evidence": "global brewer Benchmarking 2013 + workbook · Market Overview for GAC",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
-  },
-  {
-   "key": "plant",
-   "name": "Plant / Line / Machine",
-   "group": "mfg",
-   "group_name": "05 Manufacturing & Quality",
-   "color": "#A0784A",
-   "kind": "external",
-   "definition": "Region → site → production line → machine → shift → operator; carries line speeds, changeover matrices, raw OEE (observed ~40–50% on real lines) and capacity utilization.",
-   "attributes": [
-    "lineSpeed",
-    "plannedRunTime",
-    "changeoverMatrix",
-    "rawOee",
-    "capacityUtilization",
-    "shift",
-    "operator"
-   ],
-   "evidence": "HPC major plant financial report + manufacturing metric model · tobacco major global MES program",
-   "formulas": [],
-   "canon_attributes": [],
-   "canon_ref": null,
-   "canon_title": null,
-   "canon_joins": "",
-   "canon_evidence": ""
   }
  ],
  "edges": [
@@ -3808,62 +3540,6 @@
    "cross_domain": false
   },
   {
-   "source": "distributor",
-   "target": "debtor",
-   "label": "carries receivables",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "fund",
-   "target": "pnlrli",
-   "label": "accrues into",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "deduction",
-   "target": "profitability",
-   "label": "restates to performance period",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "media",
-   "target": "pnlrli",
-   "label": "marketing spend line",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "supplier",
-   "target": "pnlrli",
-   "label": "PPV & savings bridge",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "inventory",
-   "target": "pnlrli",
-   "label": "DIO → working capital",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "orders",
-   "target": "debtor",
-   "label": "invoices age into",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "prodorder",
-   "target": "pnlrli",
-   "label": "DMC + variances",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
    "source": "pnlrli",
    "target": "planversion",
    "label": "versioned (actual/plan/PPR/LE)",
@@ -3885,20 +3561,6 @@
    "cross_domain": false
   },
   {
-   "source": "benchmark",
-   "target": "pnlrli",
-   "label": "targets & peers",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "plant",
-   "target": "costing",
-   "label": "capacity supply & demand",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
    "source": "treasury",
    "target": "debtor",
    "label": "owns DSO program",
@@ -3907,38 +3569,10 @@
   },
   {
    "source": "treasury",
-   "target": "inventory",
-   "label": "DIO lever",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "treasury",
-   "target": "supplier",
-   "label": "DPO · supply-chain finance",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "treasury",
    "target": "pnlrli",
    "label": "C2C & capital charge",
    "origin_graph": "industry-graph",
    "cross_domain": false
-  },
-  {
-   "source": "riskctrl",
-   "target": "orders",
-   "label": "3-way match · SOD · DOA",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
-  },
-  {
-   "source": "riskctrl",
-   "target": "supplier",
-   "label": "vendor-master controls",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
   },
   {
    "source": "riskctrl",
@@ -3960,13 +3594,6 @@
    "label": "forecasts feed DCF",
    "origin_graph": "industry-graph",
    "cross_domain": false
-  },
-  {
-   "source": "multiples",
-   "target": "benchmark",
-   "label": "target multiples",
-   "origin_graph": "industry-graph",
-   "cross_domain": true
   },
   {
    "source": "multiples",
@@ -4118,11 +3745,6 @@
   },
   {
    "domain": "management-reporting-gross-to-net",
-   "node": "benchmark",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
    "node": "cfoagenda",
    "role": "neighbour"
   },
@@ -4148,21 +3770,6 @@
   },
   {
    "domain": "management-reporting-gross-to-net",
-   "node": "fund",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
-   "node": "inventory",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
-   "node": "media",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
    "node": "multiples",
    "role": "neighbour"
   },
@@ -4173,22 +3780,12 @@
   },
   {
    "domain": "management-reporting-gross-to-net",
-   "node": "prodorder",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
    "node": "profitability",
    "role": "neighbour"
   },
   {
    "domain": "management-reporting-gross-to-net",
    "node": "riskctrl",
-   "role": "neighbour"
-  },
-  {
-   "domain": "management-reporting-gross-to-net",
-   "node": "supplier",
    "role": "neighbour"
   },
   {
@@ -4258,22 +3855,12 @@
   },
   {
    "domain": "cost-profitability-management",
-   "node": "deduction",
-   "role": "neighbour"
-  },
-  {
-   "domain": "cost-profitability-management",
    "node": "epmplat",
    "role": "neighbour"
   },
   {
    "domain": "cost-profitability-management",
    "node": "g2n",
-   "role": "neighbour"
-  },
-  {
-   "domain": "cost-profitability-management",
-   "node": "plant",
    "role": "neighbour"
   },
   {
@@ -4328,21 +3915,6 @@
   },
   {
    "domain": "working-capital-treasury",
-   "node": "distributor",
-   "role": "neighbour"
-  },
-  {
-   "domain": "working-capital-treasury",
-   "node": "inventory",
-   "role": "neighbour"
-  },
-  {
-   "domain": "working-capital-treasury",
-   "node": "orders",
-   "role": "neighbour"
-  },
-  {
-   "domain": "working-capital-treasury",
    "node": "p2ppolicy",
    "role": "neighbour"
   },
@@ -4354,11 +3926,6 @@
   {
    "domain": "working-capital-treasury",
    "node": "riskpred",
-   "role": "neighbour"
-  },
-  {
-   "domain": "working-capital-treasury",
-   "node": "supplier",
    "role": "neighbour"
   },
   {
@@ -4458,11 +4025,6 @@
   },
   {
    "domain": "statement-analysis-valuation",
-   "node": "benchmark",
-   "role": "neighbour"
-  },
-  {
-   "domain": "statement-analysis-valuation",
    "node": "planversion",
    "role": "neighbour"
   },
@@ -4538,22 +4100,12 @@
   },
   {
    "domain": "risk-governance-controls",
-   "node": "orders",
-   "role": "neighbour"
-  },
-  {
-   "domain": "risk-governance-controls",
    "node": "pnlrli",
    "role": "neighbour"
   },
   {
    "domain": "risk-governance-controls",
    "node": "sharedsvc",
-   "role": "neighbour"
-  },
-  {
-   "domain": "risk-governance-controls",
-   "node": "supplier",
    "role": "neighbour"
   },
   {
@@ -4775,9 +4327,7 @@
   }
  ],
  "source_files": [
-  "FMCG_ONTOLOGY.md",
   "FMCG_Finance_Ontology_Graph.html",
-  "FMCG_Ontology_Graph.html",
-  "FMCG_Finance_Ontology.html"
+  "FMCG_ONTOLOGY.md"
  ]
 }
