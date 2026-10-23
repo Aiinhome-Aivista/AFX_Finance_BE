@@ -5,7 +5,19 @@ class WorkflowRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def _resolve_domain_id(self, domain_id):
+        if isinstance(domain_id, int):
+            return domain_id
+        if isinstance(domain_id, str):
+            if domain_id.isdigit():
+                return int(domain_id)
+            row = self.db.one("SELECT id FROM domains WHERE slug=%s", (domain_id,))
+            if row and row.get("id"):
+                return row["id"]
+        return domain_id
+
     def get(self, user_id, domain_id):
+        domain_id = self._resolve_domain_id(domain_id)
         return self._hydrate(self.db.one("SELECT * FROM workflows WHERE user_id=%s AND domain_id=%s", (user_id, domain_id)))
 
     def list_for_user(self, user_id):
@@ -13,6 +25,7 @@ class WorkflowRepository:
             "SELECT w.*, d.slug AS domain_slug FROM workflows w JOIN domains d ON d.id=w.domain_id WHERE w.user_id=%s", (user_id,))]
 
     def create(self, user_id, domain_id):
+        domain_id = self._resolve_domain_id(domain_id)
         wid = self.db.insert("INSERT INTO workflows(user_id,domain_id,current_step) VALUES (%s,%s,3)", (user_id, domain_id))
         for step in range(1, 7):
             status = "completed" if step <= 2 else ("active" if step == 3 else "locked")

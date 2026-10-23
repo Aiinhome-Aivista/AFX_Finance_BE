@@ -7,6 +7,17 @@ log = logging.getLogger(__name__)
 
 _cached_counts = None
 
+DOMAIN_SLUG_TO_ID = {
+    "planning-budgeting-forecasting": 1,
+    "management-reporting-gross-to-net": 2,
+    "cost-profitability-management": 3,
+    "working-capital-treasury": 4,
+    "consolidation-close-statutory": 5,
+    "statement-analysis-valuation": 6,
+    "risk-governance-controls": 7,
+    "epm-platforms-operating-model": 8,
+}
+
 
 def _clean_str(s):
     if not isinstance(s, str):
@@ -99,8 +110,16 @@ class ReferenceRepository:
             try:
                 rows = self.arango.query("FOR d IN domains SORT d.sort_order RETURN d")
                 if rows:
+                    id_map = {}
+                    if self.db:
+                        try:
+                            id_map = {r["slug"]: r["id"] for r in self.db.query("SELECT id, slug FROM domains")}
+                        except Exception:
+                            pass
                     for r in rows:
-                        r.setdefault("id", r.get("slug"))
+                        slug = r.get("slug")
+                        domain_id = id_map.get(slug) or DOMAIN_SLUG_TO_ID.get(slug)
+                        r["id"] = domain_id if domain_id is not None else slug
                         if isinstance(r.get("knowledge"), str):
                             r["knowledge"] = jload(r["knowledge"], {})
                         r.setdefault("knowledge", {})
@@ -130,7 +149,17 @@ class ReferenceRepository:
                 )
                 if res:
                     d = res[0]
-                    d.setdefault("id", d.get("slug"))
+                    domain_id = None
+                    if self.db:
+                        try:
+                            row = self.db.one("SELECT id FROM domains WHERE slug=%s OR slug=%s", (slug, normalized))
+                            if row:
+                                domain_id = row.get("id")
+                        except Exception:
+                            pass
+                    if not domain_id:
+                        domain_id = DOMAIN_SLUG_TO_ID.get(d.get("slug")) or DOMAIN_SLUG_TO_ID.get(slug)
+                    d["id"] = domain_id if domain_id is not None else d.get("slug")
                     if isinstance(d.get("knowledge"), str):
                         d["knowledge"] = jload(d["knowledge"], {})
                     d.setdefault("knowledge", {})
