@@ -352,6 +352,38 @@ class ChatService:
                         staged_ops.append({"op": uo["op"], "payload": p, "rationale": uo.get("rationale")})
 
             candidate_ops = staged_ops + (analysis.get("ops") or [])
+
+            # Ensure any new node in candidate_ops has at least one connecting edge
+            new_node_names = set()
+            for op in candidate_ops:
+                if op.get("op") == "add_node":
+                    n_name = (op.get("payload") or {}).get("name") or (op.get("payload") or {}).get("node_key")
+                    if n_name:
+                        new_node_names.add(n_name)
+
+            if new_node_names:
+                connected_nodes = set()
+                for op in candidate_ops:
+                    if op.get("op") == "add_edge":
+                        s = (op.get("payload") or {}).get("source")
+                        t = (op.get("payload") or {}).get("target")
+                        if s in new_node_names:
+                            connected_nodes.add(s)
+                        if t in new_node_names:
+                            connected_nodes.add(t)
+
+                missing_edge_nodes = new_node_names - connected_nodes
+                target_nk = q.get("node_key") or (list(state.nodes.keys())[0] if state.nodes else None)
+                target_name = state.nodes[target_nk].get("name", target_nk) if target_nk in state.nodes else target_nk
+
+                if target_name:
+                    for nn in missing_edge_nodes:
+                        candidate_ops.append({
+                            "op": "add_edge",
+                            "payload": {"source": nn, "target": target_name, "label": "relates to"},
+                            "rationale": f"Connect new entity '{nn}' to active domain context '{target_name}'"
+                        })
+
             accepted, rejected, _ = validate_sequence(state, candidate_ops, number + 1)
             ops = [{"op": a["op"], "payload": a["payload"], "rationale": a["rationale"]} for a in accepted]
             status = "skipped" if analysis["skipped"] else "answered"
@@ -567,7 +599,7 @@ class ChatService:
                     "ALLOWED_OPS": {
                         "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?"},
                         "update_node": {"node_key": "str", "name": "str?", "add_attributes": "[str]?", "remove_attributes": "[str]?", "add_formulas": "[str]?", "append_note": "str?", "definition": "str?"},
-                        "add_edge": {"source": "existing key|name", "target": "existing key|name", "label": "str"},
+                        "add_edge": {"source": "new node name or existing entity key/name", "target": "existing entity key/name or new node name", "label": "str e.g. relates to, feeds, categorizes, defines"},
                         "remove_edge": {"source": "key", "target": "key"},
                         "remove_node": {"node_key": "key"}
                     },
@@ -575,7 +607,7 @@ class ChatService:
                         "Check ACTIVE_GRAPH_NODES first. If an entity with the same or similar name already exists, DO NOT add a new node. Use update_node with its existing key instead.",
                         "Check ACTIVE_GRAPH_EDGES first. If an edge already exists between source and target, DO NOT add a duplicate edge.",
                         "If the user says 'same', 'nothing', 'no change', or confirms existing behavior, return ops: [] and an affirmative acknowledgement.",
-                        "If adding a new node, provide a meaningful business definition and attributes."
+                        "If the user introduces or mentions a DISTINCT new entity, calculation model, or table (not already in ACTIVE_GRAPH_NODES), you MUST generate an 'add_node' operation with a descriptive definition and attributes, and an 'add_edge' operation linking it to the relevant active entity."
                     ],
                     "INSTRUCTIONS": (
                         "Analyze the client's answer against the active graph. Return JSON:\n"
@@ -700,7 +732,108 @@ class ChatService:
             user_prompt = "Recent chat history:\n" + "\n".join(history_lines) + "\n\n" + user_prompt
 
         answer, engine = None, "rule-based"
-        if self.llm:
+        updated_graph_data = None
+        has_graph_intent = any(w in text.lower() for w in ("add", "create", "new entity", "new node", "insert", "link", "connect", "delete", "remove", "rename", "update entity", "entity named", "node named"))
+
+        if self.llm and has_graph_intent:
+            try:
+                graph_payload = {
+                    "DOMAIN": domain["name"],
+                    "ACTIVE_GRAPH_NODES": [{"key": k, "name": n["name"], "attributes": n.get("attributes", [])} for k, n in list(state.nodes.items())[:80]],
+                    "ACTIVE_GRAPH_EDGES": [{"source": s, "target": t, "label": l} for (s, t, l) in list(state.edges.keys())[:80]],
+                    "USER_REQUEST": text,
+                    "ALLOWED_OPS": {
+                        "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?"},
+                        "update_node": {"node_key": "str", "name": "str?", "add_attributes": "[str]?", "remove_attributes": "[str]?", "add_formulas": "[str]?", "append_note": "str?", "definition": "str?"},
+                        "add_edge": {"source": "existing key|name", "target": "existing key|name", "label": "str"},
+                        "remove_edge": {"source": "key", "target": "key"},
+                        "remove_node": {"node_key": "key"}
+                    },
+                    "INSTRUCTIONS": (
+                        "Analyze if the user is requesting to add, update, link, or remove entities/nodes in the Knowledge Graph. Return JSON:\n"
+                        "{\n"
+                        "  \"reply\": \"Clear response to user confirming what was created/updated.\",\n"
+                        "  \"ops\": [\n"
+                        "     {\"op\": \"...\", \"payload\": {...}, \"rationale\": \"...\"}\n"
+                        "  ]\n"
+                        "}"
+                    )
+                }
+                out = self.llm.complete_json(
+                    f"You are the Finance Knowledge Graph Assistant for “{domain['name']}”. Extract structured graph operations from the user request.",
+                    json.dumps(graph_payload, ensure_ascii=False),
+                    max_tokens=850
+                )
+                if isinstance(out, dict):
+                    raw_ops = out.get("ops") or []
+                    reply_text = out.get("reply") or out.get("acknowledgement") or out.get("answer")
+                    if raw_ops:
+                        # Auto-connect edge if add_node has no edge
+                        new_node_names = set()
+                        for ro in raw_ops:
+                            if ro.get("op") == "add_node":
+                                nn = (ro.get("payload") or {}).get("name") or (ro.get("payload") or {}).get("node_key")
+                                if nn:
+                                    new_node_names.add(nn)
+                        if new_node_names:
+                            connected = set()
+                            for ro in raw_ops:
+                                if ro.get("op") == "add_edge":
+                                    s = (ro.get("payload") or {}).get("source")
+                                    t = (ro.get("payload") or {}).get("target")
+                                    if s in new_node_names:
+                                        connected.add(s)
+                                    if t in new_node_names:
+                                        connected.add(t)
+                            fallback_t = node_key or (list(state.nodes.keys())[0] if state.nodes else None)
+                            fb_name = state.nodes[fallback_t].get("name", fallback_t) if fallback_t in state.nodes else fallback_t
+                            if fb_name:
+                                for nn in (new_node_names - connected):
+                                    raw_ops.append({
+                                        "op": "add_edge",
+                                        "payload": {"source": nn, "target": fb_name, "label": "relates to"},
+                                        "rationale": f"Connect new entity '{nn}' to active graph context '{fb_name}'"
+                                    })
+
+                        accepted, rejected, _ = validate_sequence(state, raw_ops, number + 1)
+                        ops = [{"op": a["op"], "payload": a["payload"], "rationale": a["rationale"]} for a in accepted]
+                        if ops:
+                            try:
+                                summary = f"Chat graph update: {text[:60]}"
+                                new_ver = self.graphs.create_version(
+                                    user_id, wf, domain, ops, "customization", None, summary, "user"
+                                )
+                                updated_graph_data = self.graphs.graph(user_id, wf, domain, new_ver)
+                                try:
+                                    from flask import current_app
+                                    from .html_graph_service import HTMLGraphService
+                                    graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+                                    html_url = HTMLGraphService.save_html(domain["slug"], domain, updated_graph_data.get("nodes", []), updated_graph_data.get("edges", []), output_dir=graph_dir)
+                                    updated_graph_data["html_url"] = html_url
+                                except Exception:
+                                    pass
+
+                                added_nodes_list = [p.get("name") or p.get("node_key") for a in accepted if a.get("op") == "add_node" for p in [a.get("payload") or {}]]
+                                added_edges_list = [f"“{p.get('source')}” → “{p.get('target')}”" for a in accepted if a.get("op") == "add_edge" for p in [a.get("payload") or {}]]
+                                extra_lines = []
+                                if added_nodes_list:
+                                    extra_lines.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes_list])}")
+                                if added_edges_list:
+                                    extra_lines.append(f"🔗 New Relationship Built: {', '.join(added_edges_list)}")
+                                if extra_lines:
+                                    answer = (reply_text or "Updated your knowledge graph.") + "\n\n" + "\n".join(extra_lines)
+                                else:
+                                    answer = reply_text
+                                engine = self.engine
+                            except Exception as ex:
+                                log.warning("Chat graph update execution failed: %s", ex)
+                    elif reply_text:
+                        answer = reply_text
+                        engine = self.engine
+            except Exception as e:
+                log.warning("LLM chat message graph extraction failed: %s", e)
+
+        if not answer and self.llm:
             try:
                 answer = self.llm.complete(sys_prompt, user_prompt, max_tokens=750).strip()
                 engine = self.engine
@@ -715,7 +848,7 @@ class ChatService:
             self.convs.add_message(conv["id"], "assistant", answer, "node_qa" if node_key else "system",
                                    {"engine": engine, "node_key": node_key} if node_key else {"engine": engine})
 
-        return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
+        return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
 
     # ------------------------------------------------------------------ node Q&A (grounded)
     def ask_node(self, user_id, domain, node_key, question):

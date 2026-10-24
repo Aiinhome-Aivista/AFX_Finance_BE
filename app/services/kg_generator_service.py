@@ -189,7 +189,7 @@ class KGGeneratorService:
             },
             "version": {
                 "number": 1,
-                "label": "KG-AI (LLM Generated)",
+                "label": "AgentForgeX Generated",
                 "kind": "llm_generated",
                 "readonly": False
             },
