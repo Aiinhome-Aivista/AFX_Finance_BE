@@ -15,8 +15,8 @@ def _clean_str(s):
              .replace("Ã—", "×")
              .replace("â†’", "→")
              .replace("âˆ’", "-")
-             .replace("Ã·", "/")
-             .replace("Â§", "§")
+             .replace("Â§", "")
+             .replace("§", "")
              .replace("Â", ""))
 
 

@@ -34,7 +34,8 @@ def _clean_str(s):
              .replace("â†’", "→")
              .replace("âˆ’", "-")
              .replace("Ã·", "/")
-             .replace("Â§", "§")
+             .replace("Â§", "")
+             .replace("§", "")
              .replace("Â", ""))
 
 
@@ -71,6 +72,14 @@ def _node(r):
 
     if "evidence" in r and r["evidence"]:
         r["evidence"] = _clean_str(r["evidence"])
+    if "canon_ref" in r and r["canon_ref"]:
+        r["canon_ref"] = _clean_str(r["canon_ref"])
+    if "canon_title" in r and r["canon_title"]:
+        r["canon_title"] = _clean_str(r["canon_title"])
+    if "canon_joins" in r and r["canon_joins"]:
+        r["canon_joins"] = _clean_str(r["canon_joins"])
+    if "canon_evidence" in r and r["canon_evidence"]:
+        r["canon_evidence"] = _clean_str(r["canon_evidence"])
     return r
 
 

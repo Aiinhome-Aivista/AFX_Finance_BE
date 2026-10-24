@@ -225,11 +225,12 @@ class ReferenceService:
             rels.append({"direction": "out" if outgoing else "in", "label": e["label"], "node_key": o["node_key"],
                          "node_name": o["name"], "group_name": o["group_name"], "color": o["color"],
                          "cross_domain": bool(e["cross_domain"]), "origin_graph": e["origin_graph"]})
+        canon_sec = (n.get("canon_ref") or "").replace("§", "").replace("Â", "").strip()
         return {"key": n["node_key"], "name": n["name"], "group_key": n["group_key"], "group_name": n["group_name"],
                 "color": n["color"], "kind": n["kind"], "definition": n["definition"], "attributes": n["attributes"],
                 "formulas": n["formulas"], "evidence": n["evidence"], "canon_attributes": n["canon_attributes"],
-                "canon": {"section": n["canon_ref"], "title": n["canon_title"], "joins": n["canon_joins"], "evidence": n["canon_evidence"]}
-                if n["canon_ref"] else None,
+                "canon": {"section": canon_sec, "title": n["canon_title"], "joins": n["canon_joins"], "evidence": n["canon_evidence"]}
+                if canon_sec else None,
                 "relationships": rels, "joins": [{"node_key": r["node_key"], "node_name": r["node_name"]} for r in rels],
                 "domains": self.repo.node_domains(key), "origin": "reference"}
 
