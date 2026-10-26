@@ -14,11 +14,11 @@ log = logging.getLogger(__name__)
 class ArangoHttpDriver:
     """Robust REST-based ArangoDB driver using standard requests."""
 
-    def __init__(self, url, username, password, db_name="finance_kg"):
+    def __init__(self, url, username, password, db_name=None):
         self.url = url.rstrip("/")
         self.username = username
         self.password = password
-        self.db_name = db_name
+        self.db_name = db_name or os.environ.get("ARANGO_DB", "")
         self.session = requests.Session()
         self.session.auth = HTTPBasicAuth(self.username, self.password)
         self.session.headers.update({"Content-Type": "application/json"})

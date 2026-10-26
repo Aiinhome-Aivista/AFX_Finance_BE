@@ -9,6 +9,19 @@ class ReferenceService:
         self.db = db
         self.repo = ReferenceRepository(db)
 
+    @staticmethod
+    def _base_url():
+        try:
+            from flask import current_app
+            if current_app:
+                cfg = current_app.config.get("APP_CONFIG")
+                if cfg and getattr(cfg, "BASE_URL", None):
+                    return cfg.BASE_URL.rstrip("/")
+        except Exception:
+            pass
+        from ..config import Config
+        return Config.from_env().BASE_URL.rstrip("/")
+
     # ------------------------------------------------------------------ domains
     def domain(self, slug):
         d = self.repo.domain_by_slug(slug)
@@ -75,7 +88,7 @@ class ReferenceService:
                     "description": d.get("description", ""),
                     "scope": d.get("scope", ""),
                     "color": d.get("color", "#2563EB"),
-                    "graph_url": f"http://127.0.0.1:5000/api/graphs/{slug}.html",
+                    "graph_url": f"{self._base_url()}/api/graphs/{slug}.html",
                     "counts": {"core": c.get("core", 0), "shared": c.get("shared", 0), "neighbour": c.get("neighbour", 0)}
                 })
 
@@ -131,7 +144,7 @@ class ReferenceService:
                 })
 
             return {
-                "graph_url": "http://127.0.0.1:5000/api/graphs/finance-overview.html",
+                "graph_url": f"{self._base_url()}/api/graphs/finance-overview.html",
                 "domains": domains,
                 "nodes": nodes,
                 "edges": edges,
@@ -198,7 +211,7 @@ class ReferenceService:
             })
 
         return {
-            "graph_url": "http://127.0.0.1:5000/api/graphs/finance-overview.html",
+            "graph_url": f"{self._base_url()}/api/graphs/finance-overview.html",
             "domains": domains,
             "nodes": nodes,
             "edges": edges,

@@ -1,4 +1,4 @@
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
 from ..db import get_db
 from ..security import auth_optional, auth_required
@@ -43,7 +43,7 @@ def overview_graph():
     """Returns the complete dynamic finance ontology overview graph from ArangoDB / database."""
     ref = ReferenceService()
     res = ref.overview_graph()
-    base_url = "http://127.0.0.1:5000"
+    base_url = current_app.config["APP_CONFIG"].BASE_URL
     overview_url = f"{base_url}/api/graphs/finance-overview.html"
     for d in res.get("domains", []):
         slug = d.get("slug")
@@ -109,7 +109,8 @@ def domain_graph(slug):
         graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
         html_url = HTMLGraphService.save_html(slug, res.get("domain", {}), res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
         res["html_url"] = html_url
-        res["graph_url"] = f"http://127.0.0.1:5000{html_url}"
+        base_url = current_app.config["APP_CONFIG"].BASE_URL
+        res["graph_url"] = f"{base_url}{html_url}"
     except Exception as e:
         pass
     return jsonify(res)
