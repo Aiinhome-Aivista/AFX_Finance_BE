@@ -96,7 +96,9 @@ def connect(cfg, database=True):
         except pymysql.err.OperationalError as e:
             last_exc = e
             time.sleep(1)
-    raise last_exc
+    if last_exc:
+        raise last_exc
+    raise pymysql.err.OperationalError(2003, "Can't connect to MySQL server")
 
 
 def open_session(cfg):

@@ -4,6 +4,7 @@ Supports both the official `python-arango` driver and a lightweight direct HTTP 
 (via `requests`) so that it works seamlessly under all environments without friction.
 """
 import logging
+import os
 import json
 import requests
 from requests.auth import HTTPBasicAuth
@@ -42,7 +43,9 @@ class ArangoHttpDriver:
                 last_exc = e
                 import time
                 time.sleep(0.5)
-        raise last_exc
+        if last_exc:
+            raise last_exc
+        raise requests.exceptions.ConnectionError(f"Failed to connect to ArangoDB after retries: {full_url}")
 
     def ping(self):
         """Test connection to the ArangoDB server."""
