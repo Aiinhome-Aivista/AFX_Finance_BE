@@ -7,7 +7,7 @@ from flask_cors import CORS
 load_dotenv()
 
 # Port is defined here in app.py
-PORT = 5007
+PORT = 5008
 
 app = create_app()
 CORS(app)
