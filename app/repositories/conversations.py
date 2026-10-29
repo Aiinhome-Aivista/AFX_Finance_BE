@@ -15,6 +15,9 @@ class ConversationRepository:
         cid = self.db.insert("INSERT INTO conversations(user_id,workflow_id,plan) VALUES (%s,%s,%s)", (user_id, workflow_id, jdump(plan)))
         return cid
 
+    def delete(self, user_id, workflow_id):
+        self.db.execute("DELETE FROM conversations WHERE user_id=%s AND workflow_id=%s", (user_id, workflow_id))
+
     def update_plan(self, conv_id, plan):
         self.db.execute("UPDATE conversations SET plan=%s WHERE id=%s", (jdump(plan), conv_id))
 

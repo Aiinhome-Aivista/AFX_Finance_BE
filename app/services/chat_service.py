@@ -285,6 +285,13 @@ class ChatService:
             self._ask_next(user_id, wf, domain, conv)
         return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]))
 
+    def reset(self, user_id, domain):
+        """Reset the conversation so the user can begin a fresh new chat session."""
+        wf = self._wf(user_id, domain)
+        with self.db.transaction():
+            self.convs.delete(user_id, wf["id"])
+        return self.start(user_id, domain)
+
     def get(self, user_id, domain):
         wf = self._wf(user_id, domain)
         conv = self.convs.get(user_id, wf["id"])
@@ -498,18 +505,12 @@ class ChatService:
 
             change_details = []
             if added_nodes:
-                change_details.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes])}")
-            if added_edges:
-                change_details.append(f"🔗 New Relationship Built: {', '.join(added_edges)}")
+                change_details.append(f"✨ Added: {', '.join([f'“{n}”' for n in added_nodes[:3]])}")
             if updated_nodes:
-                change_details.append(f"📝 Entity Updated: {', '.join(updated_nodes)}")
-            if duplicate_nodes:
-                change_details.append(f"⚠️ Existing Node Detected (Duplicate avoided): {', '.join([f'“{n}”' for n in duplicate_nodes])}")
-            if duplicate_edges:
-                change_details.append(f"⚠️ Existing Relationship Detected (Duplicate avoided): {', '.join(duplicate_edges)}")
+                change_details.append(f"📝 Updated: {', '.join(updated_nodes[:2])}")
 
             if change_details:
-                ack = base_ack + "\n\n" + "\n".join(change_details)
+                ack = base_ack + "\n" + "\n".join(change_details)
             elif ops:
                 ack = base_ack + f"\n\n• Knowledge graph updated ({len(ops)} change{'s' if len(ops) != 1 else ''} applied)."
             else:
@@ -611,16 +612,17 @@ class ChatService:
                         "remove_node": {"node_key": "key"}
                     },
                     "DUPLICATE_PREVENTION_RULES": [
+                        "MINIMAL CHANGES ONLY: Keep changes to the graph minimal and focused. Do NOT create multiple redundant entities or excess edges. Usually 0 or 1 targeted node/edge is sufficient unless explicitly requested.",
                         "Check ACTIVE_GRAPH_NODES first. If an entity with the same or similar name already exists, DO NOT add a new node. Use update_node with its existing key instead.",
-                        "Check ACTIVE_GRAPH_EDGES first. If an edge already exists between source and target, DO NOT add a duplicate edge.",
+                        "Check ACTIVE_GRAPH_EDGES first. If an edge already exists between source and target, DO NOT add a duplicate edge. Never generate bidirectional duplicate edges.",
                         "If the user says 'same', 'nothing', 'no change', or confirms existing behavior, return ops: [] and an affirmative acknowledgement.",
-                        "If the user introduces or mentions a DISTINCT new entity, calculation model, or table (not already in ACTIVE_GRAPH_NODES), you MUST generate an 'add_node' operation with a descriptive definition and attributes, and an 'add_edge' operation linking it to the relevant active entity."
+                        "Only add a new node if the user mentions a critical, distinct concept that doesn't exist. Link it with at most ONE single directed edge to the target entity."
                     ],
                     "INSTRUCTIONS": (
-                        "Analyze the client's answer against the active graph. Return JSON:\n"
+                        "Analyze the client's answer against the active graph with a MINIMAL CHANGE approach. Return JSON:\n"
                         "{\n"
-                        "  \"acknowledgement\": \"Short sentence summarizing what was understood and changed\",\n"
-                        "  \"duplicate_entities_found\": [\"names of any entities mentioned by user that already exist in ACTIVE_GRAPH_NODES so no duplicate node is added\"],\n"
+                        "  \"acknowledgement\": \"Short, concise sentence summarizing the minimal update\",\n"
+                        "  \"duplicate_entities_found\": [\"names of existing entities\"],\n"
                         "  \"followup\": null,\n"
                         "  \"ops\": [\n"
                         "     {\"op\": \"...\", \"payload\": {...}, \"rationale\": \"short explanation\"}\n"
@@ -828,16 +830,13 @@ class ChatService:
                                     pass
 
                                 added_nodes_list = [p.get("name") or p.get("node_key") for a in accepted if a.get("op") == "add_node" for p in [a.get("payload") or {}]]
-                                added_edges_list = [f"“{p.get('source')}” → “{p.get('target')}”" for a in accepted if a.get("op") == "add_edge" for p in [a.get("payload") or {}]]
                                 extra_lines = []
                                 if added_nodes_list:
-                                    extra_lines.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes_list])}")
-                                if added_edges_list:
-                                    extra_lines.append(f"🔗 New Relationship Built: {', '.join(added_edges_list)}")
+                                    extra_lines.append(f"✨ Added: {', '.join([f'“{n}”' for n in added_nodes_list[:3]])}")
                                 if extra_lines:
-                                    answer = (reply_text or "Updated your knowledge graph.") + "\n\n" + "\n".join(extra_lines)
+                                    answer = (reply_text or "Updated knowledge graph.") + "\n" + "\n".join(extra_lines)
                                 else:
-                                    answer = reply_text
+                                    answer = reply_text or "Updated knowledge graph."
                                 engine = self.engine
                             except Exception as ex:
                                 log.warning("Chat graph update execution failed: %s", ex)

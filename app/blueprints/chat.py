@@ -23,9 +23,23 @@ def get(slug):
 @auth_required
 def start(slug):
     domain, _ = domain_ctx(slug)
+    b = json_body() or {}
+    if b.get("reset"):
+        out = _svc().reset(g.user_id, domain)
+        audit("chat.reset", "domain", slug)
+        return jsonify(out), 200
     out = _svc().start(g.user_id, domain)
     audit("chat.start", "domain", slug)
     return jsonify(out), 201
+
+
+@bp.post("/reset")
+@auth_required
+def reset(slug):
+    domain, _ = domain_ctx(slug)
+    out = _svc().reset(g.user_id, domain)
+    audit("chat.reset", "domain", slug)
+    return jsonify(out), 200
 
 
 @bp.post("/answer")
