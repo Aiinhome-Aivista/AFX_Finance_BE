@@ -15,8 +15,10 @@ def create_app(config: Config | None = None, llm_factory=None) -> Flask:
     app.config["APP_CONFIG"] = cfg
     app.config["MAX_CONTENT_LENGTH"] = (cfg.MAX_UPLOAD_MB + 2) * 1024 * 1024
     app.config["JSON_SORT_KEYS"] = False
+    app.config["JSON_AS_ASCII"] = False
     try:
         app.json.sort_keys = False
+        app.json.ensure_ascii = False
     except Exception:
         pass
     logging.basicConfig(level=logging.INFO)

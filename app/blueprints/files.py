@@ -53,3 +53,12 @@ def generate(slug):
     out = TelemetryService(get_db()).generate_proposal(g.user_id, domain)
     audit("telemetry.generate", "proposal", out["proposal"]["id"])
     return jsonify(out), 201
+
+
+@bp.route("/domains/<slug>/telemetry/gap-analysis", methods=["GET", "POST"])
+@auth_required
+def gap_analysis(slug):
+    domain, _ = domain_wf(slug)
+    out = TelemetryService(get_db()).gap_analysis(g.user_id, domain)
+    audit("telemetry.gap_analysis", "domain", slug)
+    return jsonify(out), 200

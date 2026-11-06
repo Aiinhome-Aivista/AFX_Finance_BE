@@ -290,35 +290,42 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }});
     }
 
-    // Transform Nodes for Vis.js (White / Light Theme)
+    // Transform Nodes for Vis.js (White / Light Theme with RED Discrepancy Highlighting)
     const visNodes = rawNodes.map(n => {{
-      const nodeColor = n.color || '{domain_color}';
+      const isDiscrepancy = n.gap_status === 'missing' || n.gap_status === 'new' || n.is_discrepancy || n.gap_color === '#ef4444';
+      const nodeColor = isDiscrepancy ? '#ef4444' : (n.color || '{domain_color}');
+      let nodeLabel = n.name;
+      if (n.gap_status === 'missing') {
+        nodeLabel = '⚠️ ' + n.name + ' (Missing Gap)';
+      } else if (n.gap_status === 'new') {
+        nodeLabel = '✨ ' + n.name + ' (New Telemetry)';
+      }
       return {{
         id: n.key,
-        label: n.name,
+        label: nodeLabel,
         group: n.group_name,
         color: {{
-          background: '#FFFFFF',
+          background: isDiscrepancy ? '#FEF2F2' : '#FFFFFF',
           border: nodeColor,
           highlight: {{
-            background: '#F0F9FF',
+            background: isDiscrepancy ? '#FEE2E2' : '#F0F9FF',
             border: nodeColor
           }},
           hover: {{
-            background: '#F8FAFC',
+            background: isDiscrepancy ? '#FEE2E2' : '#F8FAFC',
             border: nodeColor
           }}
         }},
         font: {{
-          color: '#0F172A',
+          color: isDiscrepancy ? '#991B1B' : '#0F172A',
           size: 13,
           face: 'Inter, sans-serif',
           bold: true
         }},
         shape: 'box',
         margin: 12,
-        borderWidth: 2,
-        borderWidthSelected: 3,
+        borderWidth: isDiscrepancy ? 3 : 2,
+        borderWidthSelected: 4,
         shadow: {{
           enabled: true,
           color: 'rgba(0, 0, 0, 0.08)',

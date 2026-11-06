@@ -498,20 +498,20 @@ class ChatService:
 
             change_details = []
             if added_nodes:
-                change_details.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes])}")
+                change_details.append("New Node Added: " + ", ".join(f'"{n}"' for n in added_nodes))
             if added_edges:
-                change_details.append(f"🔗 New Relationship Built: {', '.join(added_edges)}")
+                change_details.append(f"New Relationship Built: {', '.join(added_edges)}")
             if updated_nodes:
-                change_details.append(f"📝 Entity Updated: {', '.join(updated_nodes)}")
+                change_details.append(f"Entity Updated: {', '.join(updated_nodes)}")
             if duplicate_nodes:
-                change_details.append(f"⚠️ Existing Node Detected (Duplicate avoided): {', '.join([f'“{n}”' for n in duplicate_nodes])}")
+                change_details.append("Existing Node Detected (Duplicate avoided): " + ", ".join(f'"{n}"' for n in duplicate_nodes))
             if duplicate_edges:
-                change_details.append(f"⚠️ Existing Relationship Detected (Duplicate avoided): {', '.join(duplicate_edges)}")
+                change_details.append(f"Existing Relationship Detected (Duplicate avoided): {', '.join(duplicate_edges)}")
 
             if change_details:
                 ack = base_ack + "\n\n" + "\n".join(change_details)
             elif ops:
-                ack = base_ack + f"\n\n• Knowledge graph updated ({len(ops)} change{'s' if len(ops) != 1 else ''} applied)."
+                ack = base_ack + f"\n\n- Knowledge graph updated ({len(ops)} change{'s' if len(ops) != 1 else ''} applied)."
             else:
                 ack = base_ack
 

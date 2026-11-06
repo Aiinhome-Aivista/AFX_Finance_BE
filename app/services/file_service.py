@@ -129,6 +129,15 @@ def process_file(db, cfg, file_id):
     files.update_job(job["id"], "running")
     files.set_status(file_id, "processing")
     path = Path(cfg.UPLOAD_DIR) / str(f["user_id"]) / f["stored_name"]
+    conv = db.one("SELECT id FROM conversations WHERE workflow_id=%s", (f["workflow_id"],))
+    if conv:
+        from ..repositories.conversations import ConversationRepository
+        ConversationRepository(db).add_message(
+            conv["id"],
+            "assistant",
+            f"Reading your data and doing a deep dive into \"{f['original_name']}\". Parsing schemas, formulas, and dimensions now.",
+            kind="telemetry"
+        )
     try:
         parsed = PARSERS[f["ext"]](path)
         # map against the exact finalised graph version this file was uploaded for
@@ -139,6 +148,17 @@ def process_file(db, cfg, file_id):
         mapping = map_terms(state, parsed["terms"], parsed["text"], {r["node_key"]: r["canon_attributes"] for r in refs})
         files.set_status(file_id, "processed", None, parsed["metadata"], parsed["preview"])
         files.update_job(job["id"], "succeeded", None, {"mapping": mapping})
+        if conv:
+            from ..repositories.conversations import ConversationRepository
+            matched_n = mapping.get("stats", {}).get("matched_terms", 0)
+            total_n = mapping.get("stats", {}).get("terms", 0)
+            entities_n = mapping.get("stats", {}).get("entities_touched", 0)
+            ConversationRepository(db).add_message(
+                conv["id"],
+                "assistant",
+                f"Deep dive complete for \"{f['original_name']}\". Analyzed {total_n} fields and mapped {matched_n} data points across {entities_n} KG1 entities. All set for Gap Analysis (KG2).",
+                kind="telemetry"
+            )
     except FileRejected as e:
         files.set_status(file_id, "failed", str(e))
         files.update_job(job["id"], "failed", str(e))
