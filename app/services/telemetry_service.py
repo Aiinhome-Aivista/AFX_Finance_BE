@@ -83,7 +83,10 @@ class TelemetryService:
         self.wfs = WorkflowService(db)
 
     def generate_proposal(self, user_id, domain):
-        wf = self.wfs.require_completed(user_id, domain, 5, "Finalise the ontology (step 5) before generating the telemetry graph.")
+        wf = self.wfs.get_wf(user_id, domain, required=False)
+        if not wf:
+            self.wfs.start(user_id, domain)
+            wf = self.wfs.get_wf(user_id, domain, required=True)
         done = [f for f in self.files.list(user_id, wf["id"]) if f["status"] == "processed"]
         if not done:
             raise ValidationError("Upload and successfully process at least one file first.")

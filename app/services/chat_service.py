@@ -10,7 +10,7 @@ from ..errors import ConflictError, NotFoundError, ValidationError
 from ..llm import LLMError
 from ..repositories.conversations import ConversationRepository
 from .extraction import extract
-from .graph_ops import OPS, clean_text, validate_sequence
+from .graph_ops import OPS, clean_text, slugify, validate_sequence
 from .graph_service import GraphService
 from .proposal_service import ProposalService
 from .reference_service import ReferenceService
@@ -990,7 +990,7 @@ class ChatService:
 # from ..llm import LLMError
 # from ..repositories.conversations import ConversationRepository
 # from .extraction import extract
-# from .graph_ops import OPS, clean_text, validate_sequence
+# from .graph_ops import OPS, clean_text, slugify, validate_sequence
 # from .graph_service import GraphService
 # from .proposal_service import ProposalService
 # from .reference_service import ReferenceService

@@ -42,7 +42,10 @@ class FileService:
 
     # ------------------------------------------------------------------ upload
     def upload(self, user_id, domain, storage):
-        wf = self.wfs.require_completed(user_id, domain, 5, "Uploads are only allowed after you finalise the ontology (step 5).")
+        wf = self.wfs.get_wf(user_id, domain, required=False)
+        if not wf:
+            self.wfs.start(user_id, domain)
+            wf = self.wfs.get_wf(user_id, domain, required=True)
         if not storage or not storage.filename:
             raise ValidationError("No file was provided.")
         original = secure_filename(storage.filename) or "upload"
@@ -73,7 +76,9 @@ class FileService:
         except Exception:
             path.unlink(missing_ok=True)
             raise
-        fid = self.files.create(user_id, wf["id"], domain["id"], wf["finalized_version_number"], original, stored, ext, size, h.hexdigest())
+        latest_v = self.db.one("SELECT MAX(version_number) as m FROM user_graph_versions WHERE workflow_id=%s", (wf["id"],))
+        ver_num = latest_v["m"] if latest_v and latest_v.get("m") else (wf.get("finalized_version_number") or 0)
+        fid = self.files.create(user_id, wf["id"], domain["id"], ver_num, original, stored, ext, size, h.hexdigest())
         self.files.create_job(fid, user_id)
         if self.cfg.PROCESSING_MODE == "sync":
             process_file(self.db, self.cfg, fid)
