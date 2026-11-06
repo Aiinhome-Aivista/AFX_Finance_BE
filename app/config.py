@@ -15,7 +15,7 @@ def _bool(v, default=False):
 @dataclass
 class Config:
     SECRET_KEY: str = ""
-    PORT: int = 0
+    PORT: int = 5008
     BASE_URL: str = ""
     JWT_EXPIRES_HOURS: int = 12
     CORS_ORIGINS: list = field(default_factory=list)
@@ -45,8 +45,8 @@ class Config:
         e = os.environ
         cfg = cls(
             SECRET_KEY=e.get("SECRET_KEY", ""),
-            PORT=int(e.get("PORT", 0)),
-            BASE_URL=e.get("BASE_URL", "").rstrip("/"),
+            PORT=overrides.get("PORT", 5008),
+            BASE_URL=e.get("BASE_URL", "").rstrip("/") or "http://127.0.0.1:5008",
             JWT_EXPIRES_HOURS=int(e.get("JWT_EXPIRES_HOURS", 12)),
             CORS_ORIGINS=[o.strip() for o in e.get("CORS_ORIGINS", "").split(",") if o.strip()],
             DB_HOST=e.get("DB_HOST", ""),

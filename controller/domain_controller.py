@@ -1,12 +1,10 @@
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import current_app, g, jsonify, request
 
-from ..db import get_db
-from ..security import auth_optional, auth_required
-from ..services.reference_service import ReferenceService
-from ..services.workflow_service import WorkflowService
+from app.db import get_db
+from app.security import auth_optional, auth_required
+from app.services.reference_service import ReferenceService
+from app.services.workflow_service import WorkflowService
 from ._helpers import audit, json_body
-
-bp = Blueprint("domains", __name__, url_prefix="/api")
 
 
 def _flag(name, default=True):
@@ -14,13 +12,11 @@ def _flag(name, default=True):
     return default if v is None else v.lower() in ("1", "true", "yes", "on")
 
 
-@bp.get("/apps")
 @auth_required
 def apps():
     return jsonify({"apps": WorkflowService(get_db()).apps()})
 
 
-@bp.post("/apps/select")
 @auth_required
 def select_app():
     out = WorkflowService(get_db()).select_app(g.user_id, json_body().get("app"))
@@ -28,16 +24,15 @@ def select_app():
     return jsonify(out)
 
 
-@bp.get("/domains")
 @auth_required
 def list_domains():
     db = get_db()
-    return jsonify({"domains": ReferenceService(db).list_domains(request.args.get("q")),
-                    "progress": WorkflowService(db).overview(g.user_id)})
+    return jsonify({
+        "domains": ReferenceService(db).list_domains(request.args.get("q")),
+        "progress": WorkflowService(db).overview(g.user_id),
+    })
 
 
-@bp.get("/ontology/overview-graph")
-@bp.get("/overview-graph")
 @auth_optional
 def overview_graph():
     """Returns the complete dynamic finance ontology overview graph from ArangoDB / database."""
@@ -70,9 +65,8 @@ def overview_graph():
     return jsonify(response_data)
 
 
-@bp.get("/domains/<slug>")
 @auth_required
-def domain(slug):
+def domain(slug: str):
     db = get_db()
     ref = ReferenceService(db)
     d = ref.domain_detail(slug)
@@ -80,18 +74,17 @@ def domain(slug):
     return jsonify(d)
 
 
-@bp.get("/domains/<slug>/graph")
 @auth_required
-def domain_graph(slug):
+def domain_graph(slug: str):
     """Domain graph: returns latest customized working graph if available, else KG0 baseline."""
     db = get_db()
     ref = ReferenceService(db)
     d = ref.domain(slug)
     wf = WorkflowService(db).get_wf(g.user_id, d, required=False)
-    
+
     res = None
     if wf:
-        from ..services.graph_service import GraphService
+        from app.services.graph_service import GraphService
         gs = GraphService(db)
         try:
             latest = gs.graphs.latest(g.user_id, wf["id"])
@@ -104,45 +97,49 @@ def domain_graph(slug):
         res = ref.domain_graph(slug, neighbours=_flag("neighbours", True))
 
     try:
-        from flask import current_app
-        from ..services.html_graph_service import HTMLGraphService
+        from app.services.html_graph_service import HTMLGraphService
         graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
-        html_url = HTMLGraphService.save_html(slug, res.get("domain", {}), res.get("nodes", []), res.get("edges", []), output_dir=graph_dir)
+        html_url = HTMLGraphService.save_html(
+            slug,
+            res.get("domain", {}),
+            res.get("nodes", []),
+            res.get("edges", []),
+            output_dir=graph_dir,
+        )
         res["html_url"] = html_url
         base_url = current_app.config["APP_CONFIG"].BASE_URL
         res["graph_url"] = f"{base_url}{html_url}"
-    except Exception as e:
+    except Exception:
         pass
     return jsonify(res)
 
 
-@bp.get("/domains/<slug>/blocks")
 @auth_required
-def blocks(slug):
+def blocks(slug: str):
     return jsonify({"blocks": ReferenceService(get_db()).blocks(slug)})
 
 
-@bp.get("/domains/<slug>/flows")
 @auth_required
-def domain_flows(slug):
+def domain_flows(slug: str):
     return jsonify({"flows": ReferenceService(get_db()).flows(slug, user_id=g.user_id)})
 
 
-@bp.get("/flows/<key>")
 @auth_required
-def flow(key):
+def flow(key: str):
     slug = request.args.get("domain")
     return jsonify(ReferenceService(get_db()).flow_detail(key, user_id=g.user_id, slug=slug))
 
 
-@bp.get("/nodes/<key>")
 @auth_required
-def node(key):
+def node(key: str):
     return jsonify(ReferenceService(get_db()).node_detail(key))
 
 
-@bp.get("/search")
 @auth_required
 def search():
-    res = ReferenceService(get_db()).search(request.args.get("q"), request.args.get("domain"), request.args.get("scope", "all"))
+    res = ReferenceService(get_db()).search(
+        request.args.get("q"),
+        request.args.get("domain"),
+        request.args.get("scope", "all"),
+    )
     return jsonify({"results": res, "count": len(res)})

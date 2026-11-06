@@ -1,10 +1,10 @@
 from flask import current_app, g, request
 
-from ..db import get_db
-from ..errors import ValidationError
-from ..repositories.audit import AuditRepository
-from ..services.reference_service import ReferenceService
-from ..services.workflow_service import WorkflowService
+from app.db import get_db
+from app.errors import ValidationError
+from app.repositories.audit import AuditRepository
+from app.services.reference_service import ReferenceService
+from app.services.workflow_service import WorkflowService
 
 
 def json_body():
@@ -15,7 +15,14 @@ def json_body():
 
 
 def audit(action, entity_type=None, entity_id=None, detail=None):
-    AuditRepository(get_db()).log(getattr(g, "user_id", None), action, entity_type, entity_id, detail, request.remote_addr)
+    AuditRepository(get_db()).log(
+        getattr(g, "user_id", None),
+        action,
+        entity_type,
+        entity_id,
+        detail,
+        request.remote_addr,
+    )
 
 
 def domain_ctx(slug):

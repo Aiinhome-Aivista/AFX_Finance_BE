@@ -1,25 +1,21 @@
-from flask import Blueprint, g, jsonify
+from flask import g, jsonify
 
-from ..db import get_db
-from ..errors import ValidationError
-from ..security import auth_required
-from ..services.reference_service import ReferenceService
-from ..services.workflow_service import WorkflowService
+from app.db import get_db
+from app.errors import ValidationError
+from app.security import auth_required
+from app.services.reference_service import ReferenceService
+from app.services.workflow_service import WorkflowService
 from ._helpers import audit, json_body
 
-bp = Blueprint("workflow", __name__, url_prefix="/api")
 
-
-@bp.get("/domains/<slug>/workflow")
 @auth_required
-def state(slug):
+def state(slug: str):
     db = get_db()
     return jsonify(WorkflowService(db).state(g.user_id, ReferenceService(db).domain(slug)))
 
 
-@bp.post("/domains/<slug>/select")
 @auth_required
-def select_domain(slug):
+def select_domain(slug: str):
     """Step 2: start (or resume) the workflow for this domain."""
     db = get_db()
     d = ReferenceService(db).domain(slug)
@@ -28,9 +24,8 @@ def select_domain(slug):
     return jsonify(out)
 
 
-@bp.post("/domains/<slug>/blocks")
 @auth_required
-def confirm_blocks(slug):
+def confirm_blocks(slug: str):
     """Step 3 -> 4: confirm which KG0 blocks the client wants to customise."""
     db = get_db()
     ref = ReferenceService(db)

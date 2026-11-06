@@ -1,29 +1,25 @@
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import current_app, g, jsonify, request
 
-from ..db import get_db
-from ..errors import ValidationError
-from ..security import auth_required
-from ..services.file_service import FileService
-from ..services.telemetry_service import TelemetryService
+from app.db import get_db
+from app.errors import ValidationError
+from app.security import auth_required
+from app.services.file_service import FileService
+from app.services.telemetry_service import TelemetryService
 from ._helpers import audit, domain_wf
-
-bp = Blueprint("files", __name__, url_prefix="/api")
 
 
 def _svc():
     return FileService(get_db(), current_app.config["APP_CONFIG"])
 
 
-@bp.get("/domains/<slug>/files")
 @auth_required
-def list_files(slug):
+def list_files(slug: str):
     domain, _ = domain_wf(slug)
     return jsonify({"files": _svc().list(g.user_id, domain)})
 
 
-@bp.post("/domains/<slug>/files")
 @auth_required
-def upload(slug):
+def upload(slug: str):
     domain, _ = domain_wf(slug)
     if "file" not in request.files:
         raise ValidationError("Attach the file in a multipart field named 'file'.")
@@ -32,32 +28,28 @@ def upload(slug):
     return jsonify(out), 201
 
 
-@bp.get("/files/<int:fid>")
 @auth_required
-def detail(fid):
+def detail(fid: int):
     return jsonify(_svc().detail(g.user_id, fid))
 
 
-@bp.delete("/files/<int:fid>")
 @auth_required
-def delete(fid):
+def delete(fid: int):
     _svc().delete(g.user_id, fid)
     audit("file.delete", "file", fid)
     return jsonify({"ok": True})
 
 
-@bp.post("/domains/<slug>/telemetry/generate")
 @auth_required
-def generate(slug):
+def generate_telemetry(slug: str):
     domain, _ = domain_wf(slug)
     out = TelemetryService(get_db()).generate_proposal(g.user_id, domain)
     audit("telemetry.generate", "proposal", out["proposal"]["id"])
     return jsonify(out), 201
 
 
-@bp.route("/domains/<slug>/telemetry/gap-analysis", methods=["GET", "POST"])
 @auth_required
-def gap_analysis(slug):
+def gap_analysis(slug: str):
     domain, _ = domain_wf(slug)
     out = TelemetryService(get_db()).gap_analysis(g.user_id, domain)
     audit("telemetry.gap_analysis", "domain", slug)

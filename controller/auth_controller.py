@@ -1,14 +1,11 @@
-from flask import Blueprint, g, jsonify
+from flask import g, jsonify
 
-from ..db import get_db
-from ..security import auth_required
-from ..services.auth_service import AuthService
+from app.db import get_db
+from app.security import auth_required
+from app.services.auth_service import AuthService
 from ._helpers import audit, json_body
 
-bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-
-@bp.post("/register")
 def register():
     d = json_body()
     out = AuthService(get_db()).register(d.get("email"), d.get("display_name"), d.get("password"))
@@ -17,7 +14,6 @@ def register():
     return jsonify(out), 201
 
 
-@bp.post("/login")
 def login():
     d = json_body()
     out = AuthService(get_db()).login(d.get("email"), d.get("password"))
@@ -26,7 +22,6 @@ def login():
     return jsonify(out)
 
 
-@bp.post("/logout")
 @auth_required
 def logout():
     AuthService(get_db()).logout(g.token_claims)
@@ -34,7 +29,6 @@ def logout():
     return jsonify({"ok": True})
 
 
-@bp.get("/me")
 @auth_required
 def me():
     return jsonify({"user": AuthService(get_db()).me(g.user_id)})
