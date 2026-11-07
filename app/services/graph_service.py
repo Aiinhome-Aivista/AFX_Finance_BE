@@ -113,6 +113,31 @@ class GraphService:
             history.append({"id": p["id"], "title": p["title"], "source": p["source"], "status": p["status"], "created_at": p["created_at"],
                             "decided_at": p["decided_at"], "result_version": p["result_version_number"],
                             "items": [{"op": i["op"], "description": i["description"], "status": i["status"]} for i in self.proposals.items(p["id"])]})
+
+        # Fallback: If no chat proposals exist but graph versions (KG1, KG2, etc.) were generated (e.g. telemetry/file processing),
+        # surface the version history directly so the audit trail is never empty.
+        if not history:
+            all_versions = self.graphs.versions(user_id, wf["id"])
+            for v in reversed(all_versions):
+                v_label = v.get("label") or f"KG{v.get('version_number')}"
+                summary = v.get("summary") or f"Synthesized Digital Twin {v_label}"
+                history.append({
+                    "id": f"ver-{v['id']}",
+                    "title": summary,
+                    "source": v.get("kind") or "telemetry",
+                    "status": v.get("status") or "approved",
+                    "created_at": v.get("created_at"),
+                    "decided_at": v.get("created_at"),
+                    "result_version": v.get("version_number"),
+                    "items": [
+                        {
+                            "op": "synthesize",
+                            "description": f"Applied {v.get('node_count', 0)} entities and {v.get('edge_count', 0)} relationships to create {v_label}",
+                            "status": "approved"
+                        }
+                    ]
+                })
+
         return {"version": self.version_meta(latest), "graph": serialize_state(state), "validation": validation,
                 "comparison": diff_graphs(base, state), "versions": self.versions(user_id, wf), "history": history,
                 "finalized_version_number": wf["finalized_version_number"]}
