@@ -65,7 +65,7 @@ class GraphService:
     def graph(self, user_id, wf, domain, number):
         state = self.state_of(user_id, wf, domain, number)
         if number == 0:
-            meta = {"number": 0, "label": "KG0 (selected blocks)", "kind": "reference", "status": "reference", "readonly": True}
+            meta = {"number": 0, "label": "Reference Graph (selected blocks)", "kind": "reference", "status": "reference", "readonly": True}
         else:
             meta = self.version_meta(self.graphs.version(user_id, wf["id"], number))
         return serialize_state(state, meta, {"slug": domain["slug"], "name": domain["name"], "color": domain["color"]})
