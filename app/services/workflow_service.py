@@ -6,10 +6,10 @@ from ..repositories.workflows import WorkflowRepository
 STEP_TITLES = {
     1: ("Industry sector", "Choose Finance"),
     2: ("Domain", "Pick a specific Finance domain"),
-    3: ("Reference graph (KG0)", "Explore the domain template and choose the blocks that matter"),
-    4: ("Client nuances (KG1)", "Chatbot collects your specifics and business experience"),
+    3: ("Reference graph", "Explore the domain template and choose the blocks that matter"),
+    4: ("Domain nuances", "Chatbot collects your specifics and business experience"),
     5: ("Finalise ontology", "Review, compare and finalise your customised graph"),
-    6: ("Telemetry (KG2)", "Upload CSV / XLSX / PDF / TXT / DOCX / SQL and generate the data-mapped graph"),
+    6: ("Business telemetry", "Upload CSV / XLSX / PDF / TXT / DOCX / SQL and generate the data-mapped graph"),
 }
 APPS = {"finance": {"key": "finance", "name": "Finance", "description": "Finance & EPM knowledge graphs — built from scratch for FMCG finance functions."}}
 

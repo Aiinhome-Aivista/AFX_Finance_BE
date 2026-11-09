@@ -210,7 +210,7 @@ def validate_op(state: GraphState, op: str, payload: dict) -> OpResult:
             return OpResult(errors=["The entity to remove does not exist in your graph."])
         n = state.nodes[key]
         if n["origin"] == "reference":
-            warns.append("Removes a reference entity from YOUR customised graph (KG0 itself is unchanged).")
+            warns.append("Removes a reference entity from YOUR customised graph (the reference model itself is unchanged).")
         deg = sum(1 for (s, t, _l) in state.edges if key in (s, t))
         if deg:
             warns.append(f"Also removes {deg} relationship(s) attached to it.")
