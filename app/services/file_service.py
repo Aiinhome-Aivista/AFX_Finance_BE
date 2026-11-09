@@ -156,7 +156,7 @@ def process_file(db, cfg, file_id):
             ConversationRepository(db).add_message(
                 conv["id"],
                 "assistant",
-                f"Deep dive complete for \"{f['original_name']}\". Analyzed {total_n} fields and mapped {matched_n} data points across {entities_n} KG1 entities. All set for Gap Analysis (KG2).",
+                f"Deep dive complete for \"{f['original_name']}\". Analyzed {total_n} fields and mapped {matched_n} data points across {entities_n} baseline entities. All set for Gap Analysis.",
                 kind="telemetry"
             )
     except FileRejected as e:

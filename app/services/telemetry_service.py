@@ -192,7 +192,7 @@ class TelemetryService:
             "missing": missing_count,
             "new": new_count,
             "discrepancies": missing_count + new_count,
-            "kg_version": f"KG{number} → KG2 (Gap Analysis)"
+            "kg_version": "Gap Analysis"
         }
 
         conv = self.db.one("SELECT id FROM conversations WHERE workflow_id=%s", (wf["id"],))
@@ -201,8 +201,8 @@ class TelemetryService:
             ConversationRepository(self.db).add_message(
                 conv["id"],
                 "assistant",
-                f"Gap Analysis (KG2 Evolution) Complete.\n\n"
-                f"I compared your uploaded telemetry (\"{', '.join(file_names)}\") with KG1.\n\n"
+                f"Gap Analysis Complete.\n\n"
+                f"I compared your uploaded telemetry (\"{', '.join(file_names)}\") with the baseline model.\n\n"
                 f"- Discrepancies (RED): {missing_count} missing element(s) and {new_count} new telemetry node(s)\n"
                 f"- Matched Elements: {matched_count} verified entity(ies)\n\n"
                 f"All discrepancies are highlighted in RED on your Knowledge Graph. Let's review these gaps so we can finalize your Digital Twin.",
@@ -220,7 +220,7 @@ class TelemetryService:
 
         return {
             "domain": domain,
-            "version": {"number": 2, "label": "KG2 (Gap Analysis)", "status": "gap_analysis"},
+            "version": {"number": 2, "label": "Gap Analysis", "status": "gap_analysis"},
             "nodes": nodes_out,
             "edges": edges_out,
             "stats": stats,
