@@ -97,16 +97,17 @@ class WorkflowService:
     def state(self, user_id, domain):
         wf = self.repo.get(user_id, domain["id"])
         u = self.users.by_id(user_id)
+        dom_meta = {"id": domain["id"], "slug": domain["slug"], "name": domain["name"]}
         if not wf:
             steps = [{"no": n, "title": t[0], "hint": t[1],
                       "status": "completed" if n == 1 and u["selected_app"] == "finance" else ("active" if n == (2 if u["selected_app"] == "finance" else 1) else "locked")}
                      for n, t in STEP_TITLES.items()]
-            return {"started": False, "current_step": 2, "steps": steps, "selected_blocks": None, "finalized_version_number": None}
+            return {"started": False, "current_step": 2, "steps": steps, "selected_blocks": None, "finalized_version_number": None, "domain": dom_meta}
         steps = [{"no": s["step_no"], "title": STEP_TITLES[s["step_no"]][0], "hint": STEP_TITLES[s["step_no"]][1],
                   "status": s["status"], "completed_at": s["completed_at"]} for s in self.repo.steps(wf["id"])]
         return {"started": True, "workflow_id": wf["id"], "current_step": wf["current_step"], "steps": steps,
                 "selected_blocks": wf["selected_blocks"], "finalized_version_number": wf["finalized_version_number"],
-                "finalized_at": wf["finalized_at"]}
+                "finalized_at": wf["finalized_at"], "domain": dom_meta}
 
     def overview(self, user_id):
         out = {}
