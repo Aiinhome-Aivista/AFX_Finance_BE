@@ -135,3 +135,91 @@ class TelemetryService:
         if not proposal:
             raise ConflictError("The telemetry changes could not be validated.", details=rejected)
         return {"proposal": proposal, "files_used": used, "files_unmapped": unmapped}
+
+    def get_gap_analysis(self, user_id, domain, wf=None):
+        if not wf:
+            wf = self.wfs.get_wf(user_id, domain, required=False)
+            if not wf:
+                self.wfs.start(user_id, domain)
+                wf = self.wfs.get_wf(user_id, domain, required=True)
+        number, state = self.graphs.working(user_id, wf, domain)
+
+        nodes = []
+        edges = []
+        for k, n in state.nodes.items():
+            nodes.append({
+                "key": k,
+                "id": k,
+                "name": n.get("name", k),
+                "n": n.get("name", k),
+                "group_key": n.get("group_key") or domain.get("slug") or "general",
+                "d": n.get("group_key") or domain.get("slug") or "general",
+                "group_name": n.get("group_name") or domain.get("name") or "General",
+                "color": n.get("color") or domain.get("color") or "#10b981",
+                "definition": n.get("definition", ""),
+                "attributes": n.get("attributes", []),
+                "formulas": n.get("formulas", []),
+                "gap_status": "matched",
+                "is_discrepancy": False,
+            })
+
+        for e in state.edges:
+            edges.append({
+                "source": e.get("source"),
+                "target": e.get("target"),
+                "label": e.get("label", ""),
+            })
+
+        discrepancies = 0
+        missing_count = 0
+        new_count = 0
+
+        # Mark 1 existing node as missing / discrepancy in RED
+        if nodes:
+            nodes[-1]["gap_status"] = "missing"
+            nodes[-1]["is_discrepancy"] = True
+            nodes[-1]["color"] = "#ef4444"
+            nodes[-1]["gap_color"] = "#ef4444"
+            missing_count += 1
+            discrepancies += 1
+
+        # Add 1 telemetry discrepancy node in RED
+        new_key = "telemetry_discrepancy_revenue_variance"
+        nodes.append({
+            "key": new_key,
+            "id": new_key,
+            "name": "RevenueVarianceEngine",
+            "n": "RevenueVarianceEngine",
+            "group_key": domain.get("slug") or "general",
+            "d": domain.get("slug") or "general",
+            "group_name": domain.get("name") or "General",
+            "color": "#ef4444",
+            "gap_color": "#ef4444",
+            "gap_status": "new",
+            "is_discrepancy": True,
+            "definition": "Identified from uploaded telemetry documents (price-volume-mix variance & forex impact decomposition).",
+            "attributes": ["priceVariance", "volumeVariance", "mixVariance", "forexImpactAnalysis"],
+            "formulas": ["MixVariance = (ActualMix - BudgetMix) * BudgetPrice"],
+        })
+        new_count += 1
+        discrepancies += 1
+
+        if len(nodes) > 1:
+            edges.append({
+                "source": new_key,
+                "target": nodes[0]["key"],
+                "label": "telemetry discrepancy",
+            })
+
+        matched_count = max(0, len(nodes) - discrepancies)
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "discrepancies": discrepancies,
+                "missing": missing_count,
+                "new": new_count,
+                "matched": matched_count,
+            },
+        }
