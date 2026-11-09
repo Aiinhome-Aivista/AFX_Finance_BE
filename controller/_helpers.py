@@ -28,7 +28,8 @@ def audit(action, entity_type=None, entity_id=None, detail=None):
 def domain_ctx(slug):
     """(domain row, workflow row | None) for the authenticated user."""
     db = get_db()
-    domain = ReferenceService(db).domain(slug)
+    clean_slug = str(slug).replace("_", "-").lower() if slug else slug
+    domain = ReferenceService(db).domain(clean_slug)
     wf = WorkflowService(db).get_wf(g.user_id, domain, required=False)
     return domain, wf
 
@@ -36,7 +37,8 @@ def domain_ctx(slug):
 def domain_wf(slug):
     """(domain row, workflow row) for the authenticated user, auto-starting if not started."""
     db = get_db()
-    domain = ReferenceService(db).domain(slug)
+    clean_slug = str(slug).replace("_", "-").lower() if slug else slug
+    domain = ReferenceService(db).domain(clean_slug)
     wfs = WorkflowService(db)
     wf = wfs.get_wf(g.user_id, domain, required=False)
     if not wf:

@@ -147,7 +147,7 @@ class ReferenceRepository:
     def domain_by_slug(self, slug):
         if not slug:
             return None
-        normalized = str(slug).strip().replace(" ", "-").replace("%20", "-").lower()
+        normalized = str(slug).strip().replace(" ", "-").replace("%20", "-").replace("_", "-").lower()
 
         # 1. Try ArangoDB
         if self.arango:

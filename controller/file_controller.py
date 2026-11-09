@@ -50,7 +50,11 @@ def generate_telemetry(slug: str):
 
 @auth_required
 def gap_analysis(slug: str):
-    domain, _ = domain_wf(slug)
-    out = TelemetryService(get_db()).gap_analysis(g.user_id, domain)
+    domain, wf = domain_wf(slug)
+    try:
+        out = TelemetryService(get_db()).gap_analysis(g.user_id, domain)
+    except Exception:
+        out = TelemetryService(get_db()).get_gap_analysis(g.user_id, domain, wf)
     audit("telemetry.gap_analysis", "domain", slug)
     return jsonify(out), 200
+
