@@ -66,7 +66,7 @@ class ReferenceService:
                   "change_state": "unchanged", "cross_domain": bool(e["cross_domain"]), "origin_graph": e["origin_graph"]}
                  for e in self.repo.edges_within(keep)]
         return {"domain": {"slug": d["slug"], "code": d["code"], "name": d["name"], "color": d["color"]},
-                "version": {"number": 0, "label": "KG0", "readonly": True}, "nodes": nodes, "edges": edges}
+                "version": {"number": 0, "label": "Reference Graph", "readonly": True}, "nodes": nodes, "edges": edges}
 
     def overview_graph(self):
         """Full Finance Knowledge Graph overview (Central master spine + 8 sub-domains + edges + flows)."""
