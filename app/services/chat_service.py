@@ -831,9 +831,9 @@ class ChatService:
                                 added_edges_list = [f"“{p.get('source')}” → “{p.get('target')}”" for a in accepted if a.get("op") == "add_edge" for p in [a.get("payload") or {}]]
                                 extra_lines = []
                                 if added_nodes_list:
-                                    extra_lines.append(f"✨ New Node Added: {', '.join([f'“{n}”' for n in added_nodes_list])}")
+                                    extra_lines.append(f"New Node Added: {', '.join([f'“{n}”' for n in added_nodes_list])}")
                                 if added_edges_list:
-                                    extra_lines.append(f"🔗 New Relationship Built: {', '.join(added_edges_list)}")
+                                    extra_lines.append(f"New Relationship Built: {', '.join(added_edges_list)}")
                                 if extra_lines:
                                     answer = (reply_text or "Updated your knowledge graph.") + "\n\n" + "\n".join(extra_lines)
                                 else:

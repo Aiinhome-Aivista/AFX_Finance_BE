@@ -296,9 +296,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const nodeColor = isDiscrepancy ? '#ef4444' : (n.color || '{domain_color}');
       let nodeLabel = n.name;
       if (n.gap_status === 'missing') {
-        nodeLabel = '⚠️ ' + n.name + ' (Missing Gap)';
+        nodeLabel = n.name + ' (Missing Gap)';
       } else if (n.gap_status === 'new') {
-        nodeLabel = '✨ ' + n.name + ' (New Telemetry)';
+        nodeLabel = n.name + ' (New Telemetry)';
       }
       return {{
         id: n.key,
