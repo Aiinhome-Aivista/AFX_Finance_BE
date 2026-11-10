@@ -1,5 +1,10 @@
 """Client graph versions (KG1, KG2, ...): creation (transactional), retrieval, comparison, finalization."""
+from pathlib import Path
+from flask import current_app
+
 from ..errors import ConflictError, NotFoundError, ValidationError
+from ..repositories.conversations import ConversationRepository
+from ..repositories.files import FileRepository
 from ..repositories.graphs import GraphRepository
 from ..repositories.proposals import ProposalRepository
 from .graph_ops import GraphState, apply_op, diff_graphs, validate_graph, validate_sequence
@@ -163,10 +168,31 @@ class GraphService:
     def reopen(self, user_id, wf, domain):
         if not wf["finalized_version_number"]:
             raise ConflictError("The ontology is not finalised.")
-        count = self.db.one("SELECT COUNT(*) c FROM uploaded_files WHERE workflow_id=%s", (wf["id"],))["c"]
-        tele = self.db.one("SELECT COUNT(*) c FROM user_graph_versions WHERE workflow_id=%s AND kind='telemetry'", (wf["id"],))["c"]
-        if count or tele:
-            raise ConflictError("Telemetry has already been uploaded for this ontology, so it can no longer be re-opened.")
+
         with self.db.transaction():
+            # 1. Clean up stale telemetry graph versions (nodes and edges cascade delete)
+            self.db.execute("DELETE FROM user_graph_versions WHERE workflow_id=%s AND kind='telemetry'", (wf["id"],))
+
+            # 2. Clean up stale telemetry change proposals (change_items cascade delete)
+            self.db.execute("DELETE FROM change_proposals WHERE workflow_id=%s AND source='telemetry'", (wf["id"],))
+
+            # 3. Clear finalized status on graph and workflow (Uploaded telemetry files remain safely preserved!)
             self.graphs.clear_finalized(wf["id"])
             self.wfs.on_reopened(wf)
+
+        # 4. Post system/chat notification so user knows baseline is unlocked and files are preserved
+        try:
+            conv = self.db.one("SELECT id FROM conversations WHERE workflow_id=%s", (wf["id"],))
+            if conv:
+                ConversationRepository(self.db).add_message(
+                    conv["id"],
+                    "assistant",
+                    "**Ontology Re-opened**: Your baseline ontology has been unlocked for editing. "
+                    "Your uploaded business telemetry files are safely preserved so you can easily re-run "
+                    "gap analysis once your model updates are complete.",
+                    kind="system"
+                )
+        except Exception:
+            pass
+
+        return True
