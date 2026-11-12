@@ -29,6 +29,15 @@ class FileRepository:
     def delete(self, user_id, file_id):
         return self.db.execute("DELETE FROM uploaded_files WHERE id=%s AND user_id=%s", (file_id, user_id))
 
+    def delete_for_workflow(self, user_id, workflow_id):
+        files = self.list(user_id, workflow_id)
+        if files:
+            file_ids = [f["id"] for f in files]
+            format_strings = ','.join(['%s'] * len(file_ids))
+            self.db.execute(f"DELETE FROM processing_jobs WHERE file_id IN ({format_strings})", tuple(file_ids))
+            self.db.execute("DELETE FROM uploaded_files WHERE user_id=%s AND workflow_id=%s", (user_id, workflow_id))
+        return files
+
     def set_status(self, file_id, status, error=None, metadata=None, preview=None):
         self.db.execute(
             "UPDATE uploaded_files SET status=%s, error=%s, metadata=COALESCE(%s,metadata), preview=COALESCE(%s,preview), "
