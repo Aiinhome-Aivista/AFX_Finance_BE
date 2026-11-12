@@ -8,6 +8,7 @@ from ..repositories.files import FileRepository
 from ..repositories.graphs import GraphRepository
 from ..repositories.proposals import ProposalRepository
 from .graph_ops import GraphState, apply_op, diff_graphs, validate_graph, validate_sequence
+from .impact_service import build_proposal_context, enrich_diff_business_impact
 from .reference_service import ReferenceService
 from .workflow_service import WorkflowService
 
@@ -75,9 +76,15 @@ class GraphService:
             meta = self.version_meta(self.graphs.version(user_id, wf["id"], number))
         return serialize_state(state, meta, {"slug": domain["slug"], "name": domain["name"], "color": domain["color"]})
 
+    def _proposal_context(self, user_id, wf_id):
+        proposals = self.proposals.list(user_id, wf_id)
+        with_items = [(p, self.proposals.items(p["id"])) for p in proposals]
+        return with_items, build_proposal_context(with_items)
+
     def compare(self, user_id, wf, domain, a, b):
         sa, sb = self.state_of(user_id, wf, domain, a), self.state_of(user_id, wf, domain, b)
-        d = diff_graphs(sa, sb)
+        _, prop_ctx = self._proposal_context(user_id, wf["id"])
+        d = enrich_diff_business_impact(diff_graphs(sa, sb), sa, sb, domain=domain, proposal_context=prop_ctx)
         d["from"], d["to"] = {"number": a, "label": f"KG{a}"}, {"number": b, "label": f"KG{b}"}
         return d
 
@@ -113,11 +120,13 @@ class GraphService:
         number, state = self.working(user_id, wf, domain)
         validation = validate_graph(state, self.ref.core_keys(domain["slug"]))
         base = self._baseline(domain, wf)
+        with_items, prop_ctx = self._proposal_context(user_id, wf["id"])
         history = []
-        for p in self.proposals.list(user_id, wf["id"]):
+        for p, items in with_items:
             history.append({"id": p["id"], "title": p["title"], "source": p["source"], "status": p["status"], "created_at": p["created_at"],
                             "decided_at": p["decided_at"], "result_version": p["result_version_number"],
-                            "items": [{"op": i["op"], "description": i["description"], "status": i["status"]} for i in self.proposals.items(p["id"])]})
+                            "items": [{"op": i["op"], "description": i["description"], "rationale": i.get("rationale"),
+                                       "status": i["status"]} for i in items]})
 
         # Fallback: If no chat proposals exist but graph versions (KG1, KG2, etc.) were generated (e.g. telemetry/file processing),
         # surface the version history directly so the audit trail is never empty.
@@ -143,9 +152,17 @@ class GraphService:
                     ]
                 })
 
+        comparison = enrich_diff_business_impact(
+            diff_graphs(base, state), base, state, domain=domain, proposal_context=prop_ctx
+        )
+        db_conn = getattr(self, "db", None)
+        gap_graph = None
+        if db_conn is not None:
+            from .telemetry_service import TelemetryService
+            gap_graph = TelemetryService(db_conn).build_gap_graph_for_workflow(user_id, domain, wf, state)
         return {"version": self.version_meta(latest), "graph": serialize_state(state), "validation": validation,
-                "comparison": diff_graphs(base, state), "versions": self.versions(user_id, wf), "history": history,
-                "finalized_version_number": wf["finalized_version_number"]}
+                "comparison": comparison, "versions": self.versions(user_id, wf), "history": history,
+                "finalized_version_number": wf["finalized_version_number"], "gap_graph": gap_graph}
 
     def finalize(self, user_id, wf, domain, confirm, acknowledge_warnings):
         if wf["finalized_version_number"]:
