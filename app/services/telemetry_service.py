@@ -142,42 +142,6 @@ class TelemetryService:
         new_count = 0
         edges_out = [dict(e) for e in state.edge_list()]
 
-        for f in done:
-            key = f"data-file-{f['id']}"
-            name = f"Telemetry: {f['original_name']}"
-            meta = f.get("metadata") or {}
-            nodes_out.append({
-                "key": key,
-                "id": key,
-                "name": name,
-                "kind": "datasource",
-                "role": "client",
-                "group_key": "telemetry",
-                "group_name": "Uploaded Telemetry",
-                "gap_status": "new",
-                "gap_label": "New Telemetry Data",
-                "is_discrepancy": True,
-                "gap_color": "#ef4444",
-                "color": "#ef4444",
-                "definition": f"Enterprise data source '{f['original_name']}' ({f['ext'].upper()}, {f['size_bytes']:,} bytes).",
-                "attributes": [c["name"] for c in (meta.get("column_profile") or [])] if meta.get("column_profile") else ["Enterprise Telemetry Stream"],
-                "origin": "telemetry"
-            })
-            new_count += 1
-
-            targets = list(matched_keys)[:3]
-            if not targets and nodes_out:
-                targets = [nodes_out[0]["key"]]
-            for t in targets:
-                edges_out.append({
-                    "source": key,
-                    "target": t,
-                    "label": "supplies data to",
-                    "origin": "telemetry",
-                    "change_state": "discrepancy",
-                    "gap_color": "#ef4444"
-                })
-
         stats = {
             "total_nodes": len(nodes_out),
             "matched": matched_count,
