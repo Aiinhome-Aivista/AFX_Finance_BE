@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(_ENV_PATH)
 
 
 def _bool(v, default=False):
@@ -41,7 +42,7 @@ class Config:
 
     @classmethod
     def from_env(cls, **overrides):
-        load_dotenv()
+        load_dotenv(_ENV_PATH)
         e = os.environ
         cfg = cls(
             SECRET_KEY=e.get("SECRET_KEY", ""),

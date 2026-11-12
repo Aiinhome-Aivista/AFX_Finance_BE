@@ -51,10 +51,14 @@ def generate_telemetry(slug: str):
 @auth_required
 def gap_analysis(slug: str):
     domain, wf = domain_wf(slug)
+    silent = request.args.get("silent", "").lower() in ("1", "true", "yes")
     try:
-        out = TelemetryService(get_db()).gap_analysis(g.user_id, domain)
+        out = TelemetryService(get_db()).gap_analysis(g.user_id, domain, silent=silent)
     except Exception:
+        if silent:
+            return jsonify({"nodes": [], "edges": [], "stats": None}), 200
         out = TelemetryService(get_db()).get_gap_analysis(g.user_id, domain, wf)
-    audit("telemetry.gap_analysis", "domain", slug)
+    if not silent:
+        audit("telemetry.gap_analysis", "domain", slug)
     return jsonify(out), 200
 

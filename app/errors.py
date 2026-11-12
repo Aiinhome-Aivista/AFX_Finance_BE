@@ -1,6 +1,7 @@
 """Centralised error types and handlers. Route handlers raise AppError subclasses; nothing else leaks out."""
 import logging
 from flask import jsonify
+from pymysql.err import OperationalError as PyMySQLOperationalError
 from werkzeug.exceptions import HTTPException
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,16 @@ def register_error_handlers(app):
     @app.errorhandler(HTTPException)
     def _http(e):
         return jsonify({"error": {"code": e.name.lower().replace(" ", "_"), "message": e.description}}), e.code
+
+    @app.errorhandler(PyMySQLOperationalError)
+    def _db_unavailable(e):
+        log.warning("Database operational error: %s", e)
+        return jsonify({
+            "error": {
+                "code": "database_unavailable",
+                "message": "Database connection timed out or was interrupted. Please verify network access and retry.",
+            }
+        }), 503
 
     @app.errorhandler(Exception)
     def _unhandled(e):

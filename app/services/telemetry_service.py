@@ -82,21 +82,15 @@ class TelemetryService:
         self.props = ProposalService(db)
         self.wfs = WorkflowService(db)
 
-    def gap_analysis(self, user_id, domain):
-        wf = self.wfs.get_wf(user_id, domain, required=False)
-        if not wf:
-            self.wfs.start(user_id, domain)
-            wf = self.wfs.get_wf(user_id, domain, required=True)
+    def build_gap_graph_for_workflow(self, user_id, domain, wf, state):
+        """Build the domain-agnostic telemetry gap graph (missing + new telemetry nodes) if processed files exist."""
         done = [f for f in self.files.list(user_id, wf["id"]) if f["status"] == "processed"]
         if not done:
-            raise ValidationError("Upload and successfully process at least one file first.")
-
-        number, state = self.graphs.working(user_id, wf, domain)
+            return None
 
         matched_keys = set()
         mention_counts = {}
         file_names = []
-        all_unmatched = []
 
         for f in done:
             file_names.append(f["original_name"])
@@ -111,8 +105,6 @@ class TelemetryService:
                 if k in state.nodes:
                     matched_keys.add(k)
                     mention_counts[k] = mention_counts.get(k, 0) + m.get("count", 1)
-            for u in mapping.get("unmatched", []):
-                all_unmatched.append(u)
 
         nodes_out = []
         missing_count = 0
@@ -194,29 +186,56 @@ class TelemetryService:
             "discrepancies": missing_count + new_count,
             "kg_version": "Gap Analysis"
         }
+        return {
+            "nodes": nodes_out,
+            "edges": edges_out,
+            "stats": stats,
+            "files_analyzed": file_names,
+        }
 
-        conv = self.db.one("SELECT id FROM conversations WHERE workflow_id=%s", (wf["id"],))
-        if conv:
-            from ..repositories.conversations import ConversationRepository
-            ConversationRepository(self.db).add_message(
-                conv["id"],
-                "assistant",
-                f"Gap Analysis Complete.\n\n"
-                f"I compared your uploaded telemetry (\"{', '.join(file_names)}\") with your domain baseline model.\n\n"
-                f"- Discrepancies (RED): {missing_count} missing element(s) and {new_count} new telemetry node(s)\n"
-                f"- Matched Elements: {matched_count} verified entity(ies)\n\n"
-                f"All discrepancies are highlighted in RED on your Knowledge Graph. Let's review these gaps so we can finalize your Digital Twin.",
-                kind="telemetry"
-            )
+    def gap_analysis(self, user_id, domain, silent: bool = False):
+        wf = self.wfs.get_wf(user_id, domain, required=False)
+        if not wf:
+            self.wfs.start(user_id, domain)
+            wf = self.wfs.get_wf(user_id, domain, required=True)
+        _, state = self.graphs.working(user_id, wf, domain)
+        computed = self.build_gap_graph_for_workflow(user_id, domain, wf, state)
+        if not computed:
+            raise ValidationError("Upload and successfully process at least one file first.")
+
+        nodes_out = computed["nodes"]
+        edges_out = computed["edges"]
+        stats = computed["stats"]
+        file_names = computed["files_analyzed"]
+        missing_count = stats["missing"]
+        new_count = stats["new"]
+        matched_count = stats["matched"]
+
+        if not silent:
+            conv = self.db.one("SELECT id FROM conversations WHERE workflow_id=%s", (wf["id"],))
+            if conv:
+                from ..repositories.conversations import ConversationRepository
+                ConversationRepository(self.db).add_message(
+                    conv["id"],
+                    "assistant",
+                    f"Gap Analysis Complete.\n\n"
+                    f"I compared your uploaded telemetry (\"{', '.join(file_names)}\") with your domain baseline model.\n\n"
+                    f"- Discrepancies (RED): {missing_count} missing element(s) and {new_count} new telemetry node(s)\n"
+                    f"- Matched Elements: {matched_count} verified entity(ies)\n\n"
+                    f"All discrepancies are highlighted in RED on your Knowledge Graph. Let's review these gaps so we can finalize your Digital Twin.",
+                    kind="telemetry"
+                )
 
         # Save HTML graph for iframe view as well
-        try:
-            from ..services.html_graph_service import HTMLGraphService
-            from flask import current_app
-            graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
-            html_url = HTMLGraphService.save_html(domain["slug"], domain, nodes_out, edges_out, output_dir=graph_dir)
-        except Exception:
-            html_url = None
+        html_url = None
+        if not silent:
+            try:
+                from ..services.html_graph_service import HTMLGraphService
+                from flask import current_app
+                graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
+                html_url = HTMLGraphService.save_html(domain["slug"], domain, nodes_out, edges_out, output_dir=graph_dir)
+            except Exception:
+                html_url = None
 
         return {
             "domain": domain,

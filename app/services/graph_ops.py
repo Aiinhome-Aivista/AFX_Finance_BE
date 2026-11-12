@@ -330,8 +330,41 @@ def validate_sequence(state: GraphState, raw_items: list, version_number: int, o
 
 # ----------------------------------------------------------------------------- diff
 def _node_sig(n):
-    return {"name": n["name"], "definition": n["definition"], "attributes": sorted(n["attributes"]),
-            "formulas": sorted(n["formulas"]), "notes": n.get("notes") or ""}
+    return {"name": n["name"], "definition": n["definition"], "attributes": sorted(n.get("attributes") or []),
+            "formulas": sorted(n.get("formulas") or []), "notes": n.get("notes") or ""}
+
+
+def _node_neighbors(state: GraphState, key: str) -> tuple[list[dict], list[dict]]:
+    upstream = sorted(
+        [{"key": s, "name": state.nodes[s]["name"] if s in state.nodes else s, "label": e["label"]}
+         for (s, t, _l), e in state.edges.items() if t == key],
+        key=lambda x: (x["name"], x["label"]),
+    )
+    downstream = sorted(
+        [{"key": t, "name": state.nodes[t]["name"] if t in state.nodes else t, "label": e["label"]}
+         for (s, t, _l), e in state.edges.items() if s == key],
+        key=lambda x: (x["name"], x["label"]),
+    )
+    return upstream, downstream
+
+
+def _slim_diff_node(n: dict, state: GraphState) -> dict:
+    up, down = _node_neighbors(state, n["key"])
+    return {
+        "key": n["key"],
+        "name": n["name"],
+        "kind": n.get("kind") or "core",
+        "origin": n.get("origin") or "reference",
+        "group_name": n.get("group_name") or "",
+        "color": n.get("color") or "",
+        "definition": n.get("definition") or "",
+        "attributes": list(n.get("attributes") or []),
+        "formulas": list(n.get("formulas") or []),
+        "notes": n.get("notes") or "",
+        "evidence": list(n.get("evidence") or []),
+        "upstream": up,
+        "downstream": down,
+    }
 
 
 def diff_graphs(a: GraphState, b: GraphState) -> dict:
@@ -343,18 +376,33 @@ def diff_graphs(a: GraphState, b: GraphState) -> dict:
             sa, sb = _node_sig(a.nodes[k]), _node_sig(b.nodes[k])
             ch = {f: {"from": sa[f], "to": sb[f]} for f in sa if sa[f] != sb[f]}
             if ch:
-                modified.append({"key": k, "name": b.nodes[k]["name"], "changes": ch,
-                                 "attributes_added": sorted(set(sb["attributes"]) - set(sa["attributes"])),
-                                 "attributes_removed": sorted(set(sa["attributes"]) - set(sb["attributes"]))})
+                up_b, down_b = _node_neighbors(b, k)
+                modified.append({
+                    "key": k,
+                    "name": b.nodes[k]["name"],
+                    "kind": b.nodes[k].get("kind") or "core",
+                    "origin": b.nodes[k].get("origin") or "reference",
+                    "group_name": b.nodes[k].get("group_name") or a.nodes[k].get("group_name") or "",
+                    "color": b.nodes[k].get("color") or a.nodes[k].get("color") or "",
+                    "evidence": list(b.nodes[k].get("evidence") or []),
+                    "changes": ch,
+                    "attributes_added": sorted(set(sb["attributes"]) - set(sa["attributes"])),
+                    "attributes_removed": sorted(set(sa["attributes"]) - set(sb["attributes"])),
+                    "formulas_added": sorted(set(sb["formulas"]) - set(sa["formulas"])),
+                    "formulas_removed": sorted(set(sa["formulas"]) - set(sb["formulas"])),
+                    "upstream": up_b,
+                    "downstream": down_b,
+                })
     pa = {(s, t): e for (s, t, _l), e in a.edges.items()}
     pb = {(s, t): e for (s, t, _l), e in b.edges.items()}
     e_added = [e for p, e in pb.items() if p not in pa]
     e_removed = [e for p, e in pa.items() if p not in pb]
     e_mod = [{"source": p[0], "target": p[1], "from": pa[p]["label"], "to": e["label"]}
              for p, e in pb.items() if p in pa and pa[p]["label"] != e["label"]]
-    slim = lambda n: {k: n[k] for k in ("key", "name", "kind", "origin", "group_name", "color", "definition")}  # noqa: E731
     return {
-        "nodes_added": [slim(n) for n in added], "nodes_removed": [slim(n) for n in removed], "nodes_modified": modified,
+        "nodes_added": [_slim_diff_node(n, b) for n in added],
+        "nodes_removed": [_slim_diff_node(n, a) for n in removed],
+        "nodes_modified": modified,
         "edges_added": e_added, "edges_removed": e_removed, "edges_modified": e_mod,
         "counts": {"nodes_added": len(added), "nodes_removed": len(removed), "nodes_modified": len(modified),
                    "edges_added": len(e_added), "edges_removed": len(e_removed), "edges_modified": len(e_mod),
