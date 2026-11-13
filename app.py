@@ -12,6 +12,7 @@ from controller import (
     auth_controller,
     chat_controller,
     domain_controller,
+    evaluation_controller,
     file_controller,
     graph_controller,
     health_controller,
@@ -264,6 +265,21 @@ def create_app() -> Flask:
     @app.route("/api/domains/<slug>/experience", methods=["GET"])
     def api_experience(slug):
         return graph_controller.experience(slug)
+
+    # ============================================================
+    # 7. Model Evaluation & Governance Benchmarking Endpoints
+    # ============================================================
+    @app.route("/api/domains/<slug>/evaluation", methods=["GET"])
+    def api_evaluation_summary(slug):
+        return evaluation_controller.summary(slug)
+
+    @app.route("/api/domains/<slug>/evaluation/validate", methods=["POST"])
+    def api_evaluation_validate(slug):
+        return evaluation_controller.validate_prompt(slug)
+
+    @app.route("/api/domains/<slug>/evaluation/run-benchmark", methods=["POST"])
+    def api_evaluation_run_benchmark(slug):
+        return evaluation_controller.run_benchmark(slug)
 
     return app
 

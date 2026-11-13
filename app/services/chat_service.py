@@ -12,6 +12,7 @@ from ..repositories.conversations import ConversationRepository
 from .extraction import extract
 from .graph_ops import OPS, clean_text, slugify, validate_sequence
 from .graph_service import GraphService
+from .guardrail_service import DomainGuardrailService
 from .proposal_service import ProposalService
 from .reference_service import ReferenceService
 from .workflow_service import WorkflowService
@@ -330,6 +331,26 @@ class ChatService:
             return self.chat_message(user_id, domain, text)
         last_id = self.convs.messages(conv["id"])[-1]["id"]
         number, state = self.graphs.working(user_id, wf, domain)
+
+        # Domain Guardrail: Hardcoded domain boundary check
+        active_nodes = [{"name": n["name"]} for n in state.nodes.values()] if state and state.nodes else None
+        guardrail = DomainGuardrailService.validate_domain_input(
+            domain.get("slug") or domain.get("key"),
+            text,
+            active_graph_nodes=active_nodes
+        )
+        if not guardrail["is_valid"]:
+            is_bn = any(ord(c) >= 0x0980 and ord(c) <= 0x09FF for c in text)
+            guidance = guardrail.get("suggested_guidance_bn") if is_bn and guardrail.get("suggested_guidance_bn") else guardrail["suggested_guidance"]
+            with self.db.transaction():
+                self.convs.add_message(conv["id"], "user", text, "answer", {"question_id": q["id"]})
+                self.convs.add_message(conv["id"], "assistant", guidance, "ack", {
+                    "guardrail_flagged": True,
+                    "reason": guardrail["reason"],
+                    "confidence": guardrail["confidence"],
+                    "domain_key": guardrail["domain_key"]
+                })
+            return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
 
         updated_graph_data = None
         with self.db.transaction():
@@ -712,6 +733,26 @@ class ChatService:
         last_id = self.convs.messages(conv["id"])[-1]["id"] if self.convs.messages(conv["id"]) else 0
         number, state = self.graphs.working(user_id, wf, domain)
 
+        # Domain Guardrail: Hardcoded domain boundary check
+        active_nodes = [{"name": n["name"]} for n in state.nodes.values()] if state and state.nodes else None
+        guardrail = DomainGuardrailService.validate_domain_input(
+            domain.get("slug") or domain.get("key"),
+            text,
+            active_graph_nodes=active_nodes
+        )
+        if not guardrail["is_valid"]:
+            is_bn = any(ord(c) >= 0x0980 and ord(c) <= 0x09FF for c in text)
+            guidance = guardrail.get("suggested_guidance_bn") if is_bn and guardrail.get("suggested_guidance_bn") else guardrail["suggested_guidance"]
+            with self.db.transaction():
+                self.convs.add_message(conv["id"], "user", text, "message", {"node_key": node_key})
+                self.convs.add_message(conv["id"], "assistant", guidance, "ack", {
+                    "guardrail_flagged": True,
+                    "reason": guardrail["reason"],
+                    "confidence": guardrail["confidence"],
+                    "domain_key": guardrail["domain_key"]
+                })
+            return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
+
         # Context build: full knowledge graph
         g_ctx = self._full_graph_ctx(state)
         selected_ctx = self._node_ctx(state, node_key) if node_key and node_key in state.nodes else None
@@ -721,6 +762,10 @@ class ChatService:
             f"You are grounded strictly in the user's active Knowledge Graph below:\n\n"
             f"ACTIVE KNOWLEDGE GRAPH ENTITIES ({g_ctx['entity_count']}):\n{g_ctx['entities_text']}\n\n"
             f"ACTIVE RELATIONSHIPS ({g_ctx['relationship_count']}):\n{g_ctx['relationships_text']}\n\n"
+            "STRICT DOMAIN BOUNDARY GUARDRAILS:\n"
+            f"- You represent ONLY the domain “{domain['name']}”.\n"
+            f"- Ground every single statement in the active graph and financial concepts of “{domain['name']}”.\n"
+            f"- Reject off-topic, gibberish, or cross-domain queries; guide the user back to {domain['name']}.\n\n"
             "INSTRUCTIONS:\n"
             "1. Answer questions clearly, accurately, and concisely (2 to 5 sentences).\n"
             "2. Ground every fact in the active graph entities, attributes, formulas, or connections.\n"
