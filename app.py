@@ -97,6 +97,26 @@ def create_app() -> Flask:
     def api_workspace_models():
         return domain_controller.workspace_models()
 
+    @app.route("/api/workspace/custom-models", methods=["GET"])
+    def api_list_custom_models():
+        return domain_controller.list_custom_models()
+
+    @app.route("/api/workspace/custom-models/save", methods=["POST"])
+    def api_save_custom_model():
+        return domain_controller.save_custom_model()
+
+    @app.route("/api/workspace/custom-models/publish", methods=["POST"])
+    def api_publish_custom_model():
+        return domain_controller.publish_custom_model()
+
+    @app.route("/api/workspace/custom-models/<name>", methods=["DELETE"])
+    def api_delete_custom_model(name):
+        return domain_controller.delete_custom_model(name)
+
+    @app.route("/api/workspace/custom-models/sync", methods=["POST"])
+    def api_sync_custom_models():
+        return domain_controller.sync_custom_models()
+
     @app.route("/api/domains", methods=["GET"])
     def api_list_domains():
         return domain_controller.list_domains()

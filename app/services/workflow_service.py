@@ -51,6 +51,16 @@ class WorkflowService:
             return unique_apps
         u = self.users.by_id(user_id)
         sub_keys = self.users.list_subscriptions(user_id)
+        role = u.get("role") if u else "data_architect"
+        if role == "data_analyst" and not sub_keys:
+            # Data analysts inherit enterprise active subscribed models
+            try:
+                org_subs = self.db.query("SELECT DISTINCT app_key FROM user_app_subscriptions")
+                sub_keys = [r["app_key"] for r in org_subs if r.get("app_key") in APPS and APPS[r["app_key"]]["active"]]
+            except Exception:
+                sub_keys = []
+            if not sub_keys:
+                sub_keys = ["finance"]
         sub_set = set(sub_keys)
         # Normalize legacy 'supply_chain' to 'fmcg'
         if "supply_chain" in sub_set:

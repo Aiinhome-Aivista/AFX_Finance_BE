@@ -1,3 +1,4 @@
+import json
 from flask import current_app, g, jsonify, request
 
 from app.db import get_db
@@ -36,7 +37,7 @@ def unsubscribe_app():
 
 
 @auth_required
-@role_required("data_architect")
+@role_required("data_architect", "data_analyst")
 def select_app():
     out = WorkflowService(get_db()).select_app(g.user_id, json_body().get("app"))
     audit("app.select", "app", out["selected_app"])
@@ -168,3 +169,154 @@ def search():
         request.args.get("scope", "all"),
     )
     return jsonify({"results": res, "count": len(res)})
+
+
+@auth_required
+def list_custom_models():
+    db = get_db()
+    user_id = g.user_id
+    saved_rows = db.query(
+        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, created_at, updated_at "
+        "FROM custom_finance_models WHERE user_id = %s AND status = 'SAVED' ORDER BY updated_at DESC",
+        (user_id,)
+    )
+    pub_rows = db.query(
+        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
+        "FROM custom_finance_models WHERE status = 'PUBLISHED' ORDER BY COALESCE(published_at, updated_at) DESC"
+    )
+
+    saved = []
+    seen_saved = set()
+    for r in saved_rows:
+        if r["name"] in seen_saved:
+            continue
+        seen_saved.add(r["name"])
+        saved.append({
+            "id": r["id"],
+            "name": r["name"],
+            "slug": r["slug"],
+            "domainName": r["domain_name"],
+            "savedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
+        })
+
+    published = []
+    seen_pub = set()
+    for r in pub_rows:
+        if r["name"] in seen_pub:
+            continue
+        seen_pub.add(r["name"])
+        published.append({
+            "id": r["id"],
+            "name": r["name"],
+            "slug": r["slug"],
+            "domainName": r["domain_name"],
+            "governed": True,
+            "publishedAt": r["published_at"].isoformat() if r.get("published_at") else (r["updated_at"].isoformat() if r.get("updated_at") else None),
+        })
+
+    return jsonify({
+        "saved_models": saved,
+        "published_models": published,
+    })
+
+
+@auth_required
+def save_custom_model():
+    data = json_body()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Model name is required"}), 400
+    slug = data.get("slug") or "planning-budgeting-forecasting"
+    domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+    nodes_json = json.dumps(data.get("nodes")) if data.get("nodes") is not None else None
+    edges_json = json.dumps(data.get("edges")) if data.get("edges") is not None else None
+
+    db = get_db()
+    user_id = g.user_id
+    db.execute(
+        "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, nodes_json, edges_json) "
+        "VALUES (%s, %s, %s, %s, 'SAVED', %s, %s) "
+        "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), status='SAVED', "
+        "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
+        (user_id, name, slug, domain_name, nodes_json, edges_json)
+    )
+    return jsonify({"ok": True, "name": name, "status": "SAVED"})
+
+
+@auth_required
+def publish_custom_model():
+    data = json_body()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Model name is required"}), 400
+    slug = data.get("slug") or "planning-budgeting-forecasting"
+    domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+
+    db = get_db()
+    user_id = g.user_id
+    db.execute(
+        "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
+        "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
+        "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=NOW(), updated_at=NOW()",
+        (user_id, name, slug, domain_name)
+    )
+    try:
+        db.execute(
+            "UPDATE workflows SET status='PUBLISHED', finalized_version_number=COALESCE(finalized_version_number, 1), finalized_at=NOW(), name=%s "
+            "WHERE user_id=%s AND domain_id=(SELECT id FROM domains WHERE slug=%s LIMIT 1)",
+            (name, user_id, slug)
+        )
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "name": name, "status": "PUBLISHED"})
+
+
+@auth_required
+def delete_custom_model(name: str):
+    db = get_db()
+    user_id = g.user_id
+    db.execute(
+        "DELETE FROM custom_finance_models WHERE user_id = %s AND name = %s AND status = 'SAVED'",
+        (user_id, name)
+    )
+    return jsonify({"ok": True})
+
+
+@auth_required
+def sync_custom_models():
+    data = json_body()
+    db = get_db()
+    user_id = g.user_id
+
+    saved = data.get("saved") or []
+    published = data.get("published") or []
+
+    for s in saved:
+        s_name = (s.get("name") or "").strip()
+        if not s_name:
+            continue
+        s_slug = s.get("slug") or "planning-budgeting-forecasting"
+        s_domain = s.get("domainName") or "Planning, Budgeting and Forecasting"
+        db.execute(
+            "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status) "
+            "VALUES (%s, %s, %s, %s, 'SAVED') "
+            "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name)",
+            (user_id, s_name, s_slug, s_domain)
+        )
+
+    for p in published:
+        p_name = (p.get("name") or "").strip()
+        if not p_name:
+            continue
+        p_slug = p.get("slug") or "planning-budgeting-forecasting"
+        p_domain = p.get("domainName") or "Planning, Budgeting and Forecasting"
+        db.execute(
+            "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
+            "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
+            "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW())",
+            (user_id, p_name, p_slug, p_domain)
+        )
+
+    return list_custom_models()
+
