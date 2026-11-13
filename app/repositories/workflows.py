@@ -36,7 +36,36 @@ class WorkflowRepository:
 
     def list_for_user(self, user_id):
         return [self._hydrate(r) for r in self.db.query(
-            "SELECT w.*, d.slug AS domain_slug FROM workflows w JOIN domains d ON d.id=w.domain_id WHERE w.user_id=%s", (user_id,))]
+            "SELECT w.*, d.slug AS domain_slug, d.code AS domain_code, d.name AS domain_name, "
+            "d.color AS domain_color, d.description AS domain_description, "
+            "(SELECT MAX(version_number) FROM user_graph_versions WHERE workflow_id=w.id) AS latest_version "
+            "FROM workflows w JOIN domains d ON d.id=w.domain_id WHERE w.user_id=%s "
+            "ORDER BY w.updated_at DESC",
+            (user_id,),
+        )]
+
+    def get_by_id(self, workflow_id):
+        return self._hydrate(self.db.one("SELECT * FROM workflows WHERE id=%s", (workflow_id,)))
+
+    def list_published(self):
+        return [self._hydrate(r) for r in self.db.query(
+            "SELECT w.*, d.slug AS domain_slug, d.code AS domain_code, d.name AS domain_name, "
+            "d.color AS domain_color, d.description AS domain_description, "
+            "u.display_name AS owner_name, u.email AS owner_email "
+            "FROM workflows w "
+            "JOIN domains d ON d.id=w.domain_id "
+            "JOIN users u ON u.id=w.user_id "
+            "WHERE w.finalized_version_number IS NOT NULL "
+            "ORDER BY COALESCE(w.finalized_at, w.updated_at) DESC, w.id DESC"
+        )]
+
+    def latest_published_for_domain(self, domain_id):
+        domain_id = self._resolve_domain_id(domain_id)
+        return self._hydrate(self.db.one(
+            "SELECT * FROM workflows WHERE domain_id=%s AND finalized_version_number IS NOT NULL "
+            "ORDER BY COALESCE(finalized_at, updated_at) DESC, id DESC LIMIT 1",
+            (domain_id,),
+        ))
 
     def create(self, user_id, domain_id):
         domain_id = self._resolve_domain_id(domain_id)

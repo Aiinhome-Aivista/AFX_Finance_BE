@@ -2,19 +2,22 @@ from flask import g, jsonify
 
 from app.db import get_db
 from app.errors import ValidationError
-from app.security import auth_required
+from app.security import auth_required, role_required
 from app.services.reference_service import ReferenceService
 from app.services.workflow_service import WorkflowService
-from ._helpers import audit, json_body
+from ._helpers import audit, json_body, read_domain_wf
 
 
 @auth_required
 def state(slug: str):
     db = get_db()
-    return jsonify(WorkflowService(db).state(g.user_id, ReferenceService(db).domain(slug)))
+    d, wf = read_domain_wf(slug)
+    owner_id = wf["user_id"] if wf else g.user_id
+    return jsonify(WorkflowService(db).state(owner_id, d))
 
 
 @auth_required
+@role_required("data_architect")
 def select_domain(slug: str):
     """Step 2: start (or resume) the workflow for this domain."""
     db = get_db()
@@ -25,6 +28,7 @@ def select_domain(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def confirm_blocks(slug: str):
     """Step 3 -> 4: confirm which KG0 blocks the client wants to customise."""
     db = get_db()

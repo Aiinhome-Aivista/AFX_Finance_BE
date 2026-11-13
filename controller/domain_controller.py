@@ -1,7 +1,7 @@
 from flask import current_app, g, jsonify, request
 
 from app.db import get_db
-from app.security import auth_optional, auth_required
+from app.security import auth_optional, auth_required, role_required
 from app.services.reference_service import ReferenceService
 from app.services.workflow_service import WorkflowService
 from ._helpers import audit, json_body
@@ -14,14 +14,39 @@ def _flag(name, default=True):
 
 @auth_required
 def apps():
-    return jsonify({"apps": WorkflowService(get_db()).apps()})
+    return jsonify(WorkflowService(get_db()).apps(g.user_id))
 
 
 @auth_required
+@role_required("data_architect")
+def subscribe_app():
+    app_key = json_body().get("app")
+    out = WorkflowService(get_db()).subscribe_app(g.user_id, app_key)
+    audit("app.subscribe", "app", app_key)
+    return jsonify(out)
+
+
+@auth_required
+@role_required("data_architect")
+def unsubscribe_app():
+    app_key = json_body().get("app")
+    out = WorkflowService(get_db()).unsubscribe_app(g.user_id, app_key)
+    audit("app.unsubscribe", "app", app_key)
+    return jsonify(out)
+
+
+@auth_required
+@role_required("data_architect")
 def select_app():
     out = WorkflowService(get_db()).select_app(g.user_id, json_body().get("app"))
     audit("app.select", "app", out["selected_app"])
     return jsonify(out)
+
+
+@auth_required
+def workspace_models():
+    role = getattr(g, "user_role", "data_architect")
+    return jsonify(WorkflowService(get_db()).workspace_models(g.user_id, role))
 
 
 @auth_required

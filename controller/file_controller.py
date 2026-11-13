@@ -1,11 +1,11 @@
 from flask import current_app, g, jsonify, request
 
 from app.db import get_db
-from app.errors import ValidationError
-from app.security import auth_required
+from app.errors import ForbiddenError, ValidationError
+from app.security import auth_required, role_required
 from app.services.file_service import FileService
 from app.services.telemetry_service import TelemetryService
-from ._helpers import audit, domain_wf
+from ._helpers import audit, domain_wf, read_domain_wf
 
 
 def _svc():
@@ -13,12 +13,14 @@ def _svc():
 
 
 @auth_required
+@role_required("data_architect")
 def list_files(slug: str):
     domain, _ = domain_wf(slug)
     return jsonify({"files": _svc().list(g.user_id, domain)})
 
 
 @auth_required
+@role_required("data_architect")
 def upload(slug: str):
     domain, _ = domain_wf(slug)
     if "file" not in request.files:
@@ -29,11 +31,13 @@ def upload(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def detail(fid: int):
     return jsonify(_svc().detail(g.user_id, fid))
 
 
 @auth_required
+@role_required("data_architect")
 def delete(fid: int):
     _svc().delete(g.user_id, fid)
     audit("file.delete", "file", fid)
@@ -41,6 +45,7 @@ def delete(fid: int):
 
 
 @auth_required
+@role_required("data_architect")
 def generate_telemetry(slug: str):
     domain, _ = domain_wf(slug)
     out = TelemetryService(get_db()).generate_proposal(g.user_id, domain)
@@ -50,14 +55,23 @@ def generate_telemetry(slug: str):
 
 @auth_required
 def gap_analysis(slug: str):
-    domain, wf = domain_wf(slug)
     silent = request.args.get("silent", "").lower() in ("1", "true", "yes")
+    if getattr(g, "user_role", "data_architect") == "data_analyst" and not silent:
+        raise ForbiddenError("Data Analysts can only view published models.")
+    if silent:
+        domain, wf = read_domain_wf(slug)
+        if not wf:
+            return jsonify({"nodes": [], "edges": [], "stats": None}), 200
+        owner_id = wf["user_id"]
+    else:
+        domain, wf = domain_wf(slug)
+        owner_id = g.user_id
     try:
-        out = TelemetryService(get_db()).gap_analysis(g.user_id, domain, silent=silent)
+        out = TelemetryService(get_db()).gap_analysis(owner_id, domain, silent=silent)
     except Exception:
         if silent:
             return jsonify({"nodes": [], "edges": [], "stats": None}), 200
-        out = TelemetryService(get_db()).get_gap_analysis(g.user_id, domain, wf)
+        out = TelemetryService(get_db()).get_gap_analysis(owner_id, domain, wf)
     if not silent:
         audit("telemetry.gap_analysis", "domain", slug)
     return jsonify(out), 200

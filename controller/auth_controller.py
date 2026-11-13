@@ -8,9 +8,14 @@ from ._helpers import audit, json_body
 
 def register():
     d = json_body()
-    out = AuthService(get_db()).register(d.get("email"), d.get("display_name"), d.get("password"))
+    out = AuthService(get_db()).register(
+        d.get("email"),
+        d.get("display_name"),
+        d.get("password"),
+        d.get("role", "data_architect"),
+    )
     g.user_id = out["user"]["id"]
-    audit("auth.register", "user", g.user_id)
+    audit("auth.register", "user", g.user_id, {"role": out["user"]["role"]})
     return jsonify(out), 201
 
 

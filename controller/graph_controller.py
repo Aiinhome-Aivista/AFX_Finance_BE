@@ -2,33 +2,38 @@ import logging
 from flask import current_app, g, jsonify, request
 
 from app.db import get_db
-from app.errors import ValidationError
+from app.errors import ConflictError, ValidationError
 from app.repositories.conversations import ConversationRepository
-from app.security import auth_required
+from app.security import auth_required, role_required
 from app.services.graph_service import GraphService
 from app.services.proposal_service import ProposalService
-from ._helpers import audit, domain_wf, json_body, llm
+from ._helpers import audit, domain_wf, json_body, llm, read_domain_wf
 
 log = logging.getLogger(__name__)
 
 
 @auth_required
 def versions(slug: str):
-    domain, wf = domain_wf(slug)
+    domain, wf = read_domain_wf(slug)
+    if not wf:
+        return jsonify({"versions": [], "finalized_version_number": None})
     gs = GraphService(get_db())
     return jsonify({
-        "versions": gs.versions(g.user_id, wf),
+        "versions": gs.versions(wf["user_id"], wf),
         "finalized_version_number": wf["finalized_version_number"],
     })
 
 
 @auth_required
 def version_graph(slug: str, number: int):
-    domain, wf = domain_wf(slug)
-    return jsonify(GraphService(get_db()).graph(g.user_id, wf, domain, number))
+    domain, wf = read_domain_wf(slug)
+    if not wf:
+        raise ConflictError("Select this domain first to explore its graph versions.")
+    return jsonify(GraphService(get_db()).graph(wf["user_id"], wf, domain, number))
 
 
 @auth_required
+@role_required("data_architect")
 def working_graph(slug: str):
     """The graph the user is currently shaping: latest version, or the KG0 baseline for their selected blocks."""
     domain, wf = domain_wf(slug)
@@ -46,6 +51,7 @@ def working_graph(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def graph_html(slug: str):
     """Returns the URL of the generated HTML graph, generating it if needed."""
     domain, wf = domain_wf(slug)
@@ -69,6 +75,7 @@ def graph_html(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def generate_graph(slug: str):
     """Generate a custom Knowledge Graph via LLM and optionally persist it."""
     from app.services.kg_generator_service import KGGeneratorService
@@ -99,27 +106,32 @@ def generate_graph(slug: str):
 
 @auth_required
 def compare(slug: str):
-    domain, wf = domain_wf(slug)
+    domain, wf = read_domain_wf(slug)
+    if not wf:
+        raise ConflictError("No graph versions exist yet to compare.")
     try:
         a, b = int(request.args.get("from", 0)), int(request.args.get("to"))
     except (TypeError, ValueError):
         raise ValidationError("Provide integer 'from' and 'to' version numbers.")
-    return jsonify(GraphService(get_db()).compare(g.user_id, wf, domain, a, b))
+    return jsonify(GraphService(get_db()).compare(wf["user_id"], wf, domain, a, b))
 
 
 @auth_required
+@role_required("data_architect")
 def proposals(slug: str):
     domain, wf = domain_wf(slug)
     return jsonify({"proposals": ProposalService(get_db()).list(g.user_id, wf)})
 
 
 @auth_required
+@role_required("data_architect")
 def proposal(slug: str, pid: int):
     domain, wf = domain_wf(slug)
     return jsonify(ProposalService(get_db()).detail(g.user_id, wf, pid))
 
 
 @auth_required
+@role_required("data_architect")
 def decide(slug: str, pid: int):
     domain, wf = domain_wf(slug)
     d = json_body()
@@ -133,11 +145,14 @@ def decide(slug: str, pid: int):
 
 @auth_required
 def finalization(slug: str):
-    domain, wf = domain_wf(slug)
-    return jsonify(GraphService(get_db()).finalization_preview(g.user_id, wf, domain))
+    domain, wf = read_domain_wf(slug)
+    if not wf:
+        raise ConflictError("There is no customised graph yet. Collect your nuances and approve changes first (step 4).")
+    return jsonify(GraphService(get_db()).finalization_preview(wf["user_id"], wf, domain))
 
 
 @auth_required
+@role_required("data_architect")
 def finalize(slug: str):
     domain, wf = domain_wf(slug)
     d = json_body()
@@ -153,6 +168,7 @@ def finalize(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def reopen(slug: str):
     domain, wf = domain_wf(slug)
     GraphService(get_db()).reopen(g.user_id, wf, domain)
@@ -161,6 +177,7 @@ def reopen(slug: str):
 
 
 @auth_required
+@role_required("data_architect")
 def experience(slug: str):
     domain, wf = domain_wf(slug)
     rows = ConversationRepository(get_db()).experience(g.user_id, wf["id"])

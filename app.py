@@ -80,9 +80,21 @@ def create_app() -> Flask:
     def api_apps():
         return domain_controller.apps()
 
+    @app.route("/api/apps/subscribe", methods=["POST"])
+    def api_subscribe_app():
+        return domain_controller.subscribe_app()
+
+    @app.route("/api/apps/unsubscribe", methods=["POST"])
+    def api_unsubscribe_app():
+        return domain_controller.unsubscribe_app()
+
     @app.route("/api/apps/select", methods=["POST"])
     def api_select_app():
         return domain_controller.select_app()
+
+    @app.route("/api/workspace/models", methods=["GET"])
+    def api_workspace_models():
+        return domain_controller.workspace_models()
 
     @app.route("/api/domains", methods=["GET"])
     def api_list_domains():

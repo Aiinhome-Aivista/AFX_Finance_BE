@@ -7,7 +7,7 @@ from flask import current_app, g, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
-from .errors import AuthError
+from .errors import AuthError, ForbiddenError
 
 
 def hash_password(pw: str) -> str:
@@ -18,10 +18,16 @@ def verify_password(pw_hash: str, pw: str) -> bool:
     return check_password_hash(pw_hash, pw)
 
 
-def issue_token(user_id: int) -> tuple[str, dt.datetime]:
+def issue_token(user_id: int, role: str = "data_architect") -> tuple[str, dt.datetime]:
     cfg = current_app.config["APP_CONFIG"]
     exp = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=cfg.JWT_EXPIRES_HOURS)
-    payload = {"sub": str(user_id), "jti": uuid.uuid4().hex, "exp": exp, "iat": dt.datetime.now(dt.timezone.utc)}
+    payload = {
+        "sub": str(user_id),
+        "role": role,
+        "jti": uuid.uuid4().hex,
+        "exp": exp,
+        "iat": dt.datetime.now(dt.timezone.utc),
+    }
     return jwt.encode(payload, cfg.SECRET_KEY, algorithm="HS256"), exp
 
 
@@ -36,7 +42,7 @@ def decode_token(token: str) -> dict:
 
 
 def auth_required(fn):
-    """Protects an API route; sets g.user_id / g.token_claims. Every repository call is then scoped by g.user_id."""
+    """Protects an API route; sets g.user_id / g.user_role / g.token_claims. Every repository call is scoped cleanly."""
 
     @wraps(fn)
     def wrapper(*a, **kw):
@@ -44,14 +50,37 @@ def auth_required(fn):
         if not header.startswith("Bearer "):
             raise AuthError("Authentication required.")
         claims = decode_token(header[7:])
-        row = get_db().one("SELECT jti FROM revoked_tokens WHERE jti=%s", (claims["jti"],))
+        db = get_db()
+        row = db.one("SELECT jti FROM revoked_tokens WHERE jti=%s", (claims["jti"],))
         if row:
             raise AuthError("This session was signed out.")
-        g.user_id = int(claims["sub"])
+        uid = int(claims["sub"])
+        try:
+            u = db.one("SELECT role FROM users WHERE id=%s", (uid,))
+        except Exception:
+            base = db.one("SELECT id FROM users WHERE id=%s", (uid,))
+            u = {"role": claims.get("role") or "data_architect"} if base else None
+        if not u:
+            raise AuthError("Account no longer exists.")
+        g.user_id = uid
+        g.user_role = u.get("role") or claims.get("role") or "data_architect"
         g.token_claims = claims
         return fn(*a, **kw)
 
     return wrapper
+
+
+def role_required(*allowed_roles):
+    """Restricts a route to specific user roles (e.g. 'data_architect'). Must run after @auth_required."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            role = getattr(g, "user_role", None)
+            if role not in allowed_roles:
+                raise ForbiddenError("Your role does not have permission to perform this action.")
+            return fn(*a, **kw)
+        return wrapper
+    return decorator
 
 
 def auth_optional(fn):
