@@ -42,3 +42,24 @@ def confirm_blocks(slug: str):
     wfs.confirm_blocks(g.user_id, d, ids)
     audit("workflow.blocks", "domain", slug, {"blocks": ids})
     return jsonify(wfs.state(g.user_id, d))
+
+
+@auth_required
+@role_required("data_architect")
+def reset_domain(slug: str):
+    """Reset a domain workflow and its conversation back to initial baseline."""
+    db = get_db()
+    d = ReferenceService(db).domain(slug)
+    out = WorkflowService(db).reset_domain(g.user_id, d)
+    audit("workflow.reset", "domain", slug)
+    return jsonify(out)
+
+
+@auth_required
+@role_required("data_architect")
+def reset_all():
+    """Reset all domain workflows and conversations for user."""
+    db = get_db()
+    out = WorkflowService(db).reset_all(g.user_id)
+    audit("workflow.reset_all", "workspace", "finance")
+    return jsonify(out)

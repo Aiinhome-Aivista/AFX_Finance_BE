@@ -243,3 +243,17 @@ class WorkflowService:
             out[wf["domain_slug"]] = {"current_step": wf["current_step"], "completed": sum(1 for s in steps if s["status"] == "completed"),
                                       "finalized": bool(wf["finalized_version_number"])}
         return out
+
+    def reset_domain(self, user_id, domain):
+        """Reset a domain workflow completely so everything starts fresh."""
+        wf = self.repo.get(user_id, domain["id"])
+        if wf:
+            self.db.execute("DELETE FROM workflows WHERE id=%s", (wf["id"],))
+        return self.start(user_id, domain)
+
+    def reset_all(self, user_id):
+        """Reset all workflows for user so any selected domain starts completely fresh."""
+        wfs = self.repo.list_for_user(user_id)
+        for w in wfs:
+            self.db.execute("DELETE FROM workflows WHERE id=%s", (w["id"],))
+        return {"status": "ok", "message": "All domain workflows reset to fresh baseline."}
