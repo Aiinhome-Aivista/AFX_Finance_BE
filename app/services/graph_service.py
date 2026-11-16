@@ -14,9 +14,17 @@ from .workflow_service import WorkflowService
 
 
 def serialize_state(state: GraphState, version=None, domain=None):
-    nodes = [{k: n.get(k) for k in ("key", "name", "ref_name", "group_key", "group_name", "color", "kind", "role", "definition",
-                                    "attributes", "formulas", "evidence", "notes", "origin", "change_state", "added_in_version")}
-             for n in state.node_list()]
+    dom_name = domain.get("name", "Finance") if domain and isinstance(domain, dict) else "Finance"
+    nodes = []
+    for n in state.node_list():
+        d = {k: n.get(k) for k in ("key", "name", "ref_name", "group_key", "group_name", "color", "kind", "role", "definition",
+                                    "attributes", "formulas", "evidence", "notes", "origin", "change_state", "added_in_version",
+                                    "traversal_path", "stop_criteria")}
+        if not d.get("traversal_path"):
+            d["traversal_path"] = f"Traverse when evaluating {n.get('name', 'entity')} dependencies in {dom_name} planning and analytics."
+        if not d.get("stop_criteria"):
+            d["stop_criteria"] = f"Do not traverse for unapproved scope changes or outside {dom_name} operational boundaries."
+        nodes.append(d)
     edges = [{k: e.get(k) for k in ("source", "target", "label", "origin", "change_state", "added_in_version", "cross_domain")}
              for e in state.edge_list()]
     out = {"nodes": nodes, "edges": edges}

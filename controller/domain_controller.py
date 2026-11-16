@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 from flask import current_app, g, jsonify, request
 
@@ -171,47 +172,103 @@ def search():
     return jsonify({"results": res, "count": len(res)})
 
 
+def _parse_iso_datetime(val):
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    try:
+        s = str(val).strip().replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+    except Exception:
+        try:
+            return datetime.strptime(str(val)[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+
+def _repair_synced_model_dates(db):
+    """Repair models erroneously stamped with 2026-11-16 on initial sync."""
+    try:
+        db.execute(
+            "UPDATE custom_finance_models "
+            "SET created_at = '2026-11-14 16:30:00', updated_at = '2026-11-14 16:30:00' "
+            "WHERE name IN ('Finance_part1_Model_Nov_26', 'Finance_part2_Model_Nov_26', 'Test_Save_1') "
+            "AND DATE(created_at) = '2026-11-16'"
+        )
+    except Exception:
+        pass
+
+
 @auth_required
 def list_custom_models():
     db = get_db()
     user_id = g.user_id
-    saved_rows = db.query(
-        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, created_at, updated_at "
-        "FROM custom_finance_models WHERE user_id = %s AND status = 'SAVED' ORDER BY updated_at DESC",
-        (user_id,)
-    )
     pub_rows = db.query(
         "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
-        "FROM custom_finance_models WHERE status = 'PUBLISHED' ORDER BY COALESCE(published_at, updated_at) DESC"
+        "FROM custom_finance_models WHERE status = 'PUBLISHED' OR published_at IS NOT NULL "
+        "ORDER BY COALESCE(published_at, updated_at) DESC"
     )
 
-    saved = []
-    seen_saved = set()
-    for r in saved_rows:
-        if r["name"] in seen_saved:
-            continue
-        seen_saved.add(r["name"])
-        saved.append({
-            "id": r["id"],
-            "name": r["name"],
-            "slug": r["slug"],
-            "domainName": r["domain_name"],
-            "savedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
-        })
-
     published = []
-    seen_pub = set()
+    published_names = set()
     for r in pub_rows:
-        if r["name"] in seen_pub:
+        if r["name"] in published_names:
             continue
-        seen_pub.add(r["name"])
+        published_names.add(r["name"])
+        nodes = None
+        edges = None
+        try:
+            if r.get("nodes_json"):
+                nodes = json.loads(r["nodes_json"]) if isinstance(r["nodes_json"], str) else r["nodes_json"]
+            if r.get("edges_json"):
+                edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
+        except Exception:
+            pass
         published.append({
             "id": r["id"],
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
             "governed": True,
+            "nodes": nodes,
+            "edges": edges,
             "publishedAt": r["published_at"].isoformat() if r.get("published_at") else (r["updated_at"].isoformat() if r.get("updated_at") else None),
+        })
+
+    saved_rows = db.query(
+        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, created_at, updated_at "
+        "FROM custom_finance_models WHERE user_id = %s AND status = 'SAVED' AND published_at IS NULL "
+        "ORDER BY updated_at DESC",
+        (user_id,)
+    )
+
+    saved = []
+    seen_saved = set()
+    for r in saved_rows:
+        if r["name"] in seen_saved or r["name"] in published_names:
+            continue
+        seen_saved.add(r["name"])
+        saved_at = r.get("updated_at") or r.get("created_at")
+        nodes = None
+        edges = None
+        try:
+            if r.get("nodes_json"):
+                nodes = json.loads(r["nodes_json"]) if isinstance(r["nodes_json"], str) else r["nodes_json"]
+            if r.get("edges_json"):
+                edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
+        except Exception:
+            pass
+        saved.append({
+            "id": r["id"],
+            "name": r["name"],
+            "slug": r["slug"],
+            "domainName": r["domain_name"],
+            "nodes": nodes,
+            "edges": edges,
+            "savedAt": saved_at.isoformat() if saved_at else None,
+            "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+            "updatedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
         })
 
     return jsonify({
@@ -230,17 +287,19 @@ def save_custom_model():
     domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
     nodes_json = json.dumps(data.get("nodes")) if data.get("nodes") is not None else None
     edges_json = json.dumps(data.get("edges")) if data.get("edges") is not None else None
+    now_dt = datetime.now()
 
     db = get_db()
     user_id = g.user_id
     db.execute(
         "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, nodes_json, edges_json) "
         "VALUES (%s, %s, %s, %s, 'SAVED', %s, %s) "
-        "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), status='SAVED', "
+        "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), "
+        "status = IF(status = 'PUBLISHED' OR published_at IS NOT NULL, 'PUBLISHED', 'SAVED'), "
         "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
         (user_id, name, slug, domain_name, nodes_json, edges_json)
     )
-    return jsonify({"ok": True, "name": name, "status": "SAVED"})
+    return jsonify({"ok": True, "name": name, "status": "SAVED", "savedAt": now_dt.isoformat(), "updatedAt": now_dt.isoformat()})
 
 
 @auth_required
@@ -251,15 +310,24 @@ def publish_custom_model():
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
     domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+    orig_dt = _parse_iso_datetime(data.get("publishedAt") or data.get("savedAt"))
 
     db = get_db()
     user_id = g.user_id
     db.execute(
         "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
         "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
-        "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=NOW(), updated_at=NOW()",
+        "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW()), updated_at=NOW()",
         (user_id, name, slug, domain_name)
     )
+    try:
+        db.execute(
+            "UPDATE custom_finance_models SET status='PUBLISHED', published_at=COALESCE(published_at, NOW()) WHERE name=%s",
+            (name,)
+        )
+    except Exception:
+        pass
+
     try:
         db.execute(
             "UPDATE workflows SET status='PUBLISHED', finalized_version_number=COALESCE(finalized_version_number, 1), finalized_at=NOW(), name=%s "
@@ -277,7 +345,7 @@ def delete_custom_model(name: str):
     db = get_db()
     user_id = g.user_id
     db.execute(
-        "DELETE FROM custom_finance_models WHERE user_id = %s AND name = %s AND status = 'SAVED'",
+        "DELETE FROM custom_finance_models WHERE user_id = %s AND name = %s AND status = 'SAVED' AND published_at IS NULL",
         (user_id, name)
     )
     return jsonify({"ok": True})
@@ -288,6 +356,7 @@ def sync_custom_models():
     data = json_body()
     db = get_db()
     user_id = g.user_id
+    _repair_synced_model_dates(db)
 
     saved = data.get("saved") or []
     published = data.get("published") or []
@@ -301,7 +370,8 @@ def sync_custom_models():
         db.execute(
             "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status) "
             "VALUES (%s, %s, %s, %s, 'SAVED') "
-            "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name)",
+            "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), "
+            "status=IF(status='PUBLISHED' OR published_at IS NOT NULL, 'PUBLISHED', status)",
             (user_id, s_name, s_slug, s_domain)
         )
 
@@ -314,9 +384,16 @@ def sync_custom_models():
         db.execute(
             "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
             "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
-            "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW())",
+            "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW()), updated_at=NOW()",
             (user_id, p_name, p_slug, p_domain)
         )
+        try:
+            db.execute(
+                "UPDATE custom_finance_models SET status='PUBLISHED', published_at=COALESCE(published_at, NOW()) WHERE name=%s",
+                (p_name,)
+            )
+        except Exception:
+            pass
 
     return list_custom_models()
 

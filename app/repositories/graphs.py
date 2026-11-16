@@ -32,8 +32,15 @@ def _n(r):
     r["formulas"] = [_clean_str(f) if isinstance(f, str) else f for f in raw_forms]
     if "evidence" in r:
         r["evidence"] = _clean_str(r["evidence"])
-    if "notes" in r:
+    if "notes" in r and r["notes"]:
         r["notes"] = _clean_str(r["notes"])
+        try:
+            parsed = jload(r["notes"], None)
+            if isinstance(parsed, dict):
+                r["traversal_path"] = parsed.get("traversal_path")
+                r["stop_criteria"] = parsed.get("stop_criteria")
+        except Exception:
+            pass
     return r
 
 

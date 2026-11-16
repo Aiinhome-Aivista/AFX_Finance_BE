@@ -6,6 +6,7 @@ Every operation acts on a user-owned GraphState copy. KG0 is never an input that
 from __future__ import annotations
 
 import copy
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -162,10 +163,14 @@ def validate_op(state: GraphState, op: str, payload: dict) -> OpResult:
         prefix = {"entity": "client-", "experience": "exp-", "datasource": "data-"}[kind]
         requested = clean_text(payload.get("node_key"), 64)
         base = slugify(requested or name, prefix if not (requested or "").startswith(prefix) else "")
+        traversal = clean_text(payload.get("traversal_path"), 500)
+        stop_crit = clean_text(payload.get("stop_criteria"), 500)
         p = {"node_key": _unique_key(state, base), "name": name, "kind": kind,
              "definition": clean_text(payload.get("definition"), LIM["definition"]) or "Client-defined entity (no reference definition).",
              "attributes": _str_list(payload.get("attributes"), LIM["attr"], LIM["attrs"]),
-             "formulas": _str_list(payload.get("formulas"), LIM["formula"], LIM["formulas"])}
+             "formulas": _str_list(payload.get("formulas"), LIM["formula"], LIM["formulas"]),
+             "traversal_path": traversal or f"Traverse during {name} driver calculation, reporting hierarchies, and variance tracking.",
+             "stop_criteria": stop_crit or f"Do not traverse outside operational finance boundary, or for unvalidated non-operating adjustments."}
         return OpResult(p, [], warns)
 
     if op == "update_node":
@@ -249,10 +254,14 @@ def apply_op(state: GraphState, op: str, p: dict, version_number: int, origin: s
     """Apply a *validated* (cleaned) payload to `state` in place."""
     if op == "add_node":
         group, group_name, color = KIND_STYLE[p["kind"]]
+        traversal = p.get("traversal_path") or f"Traverse during {p['name']} driver calculation, reporting hierarchies, and variance tracking."
+        stop_crit = p.get("stop_criteria") or f"Do not traverse outside operational finance boundary, or for unvalidated non-operating adjustments."
+        notes_str = json.dumps({"traversal_path": traversal, "stop_criteria": stop_crit}, ensure_ascii=False)
         state.nodes[p["node_key"]] = {
             "key": p["node_key"], "name": p["name"], "ref_name": None, "group_key": group, "group_name": group_name,
             "color": color, "kind": p["kind"], "role": "client", "definition": p["definition"],
-            "attributes": list(p["attributes"]), "formulas": list(p["formulas"]), "evidence": None, "notes": None,
+            "attributes": list(p["attributes"]), "formulas": list(p["formulas"]), "evidence": None,
+            "traversal_path": traversal, "stop_criteria": stop_crit, "notes": notes_str,
             "origin": origin, "change_state": "added", "added_in_version": version_number}
     elif op == "update_node":
         n = state.nodes[p["node_key"]]
