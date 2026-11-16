@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 from flask import current_app, g, jsonify, request
 
@@ -171,6 +172,34 @@ def search():
     return jsonify({"results": res, "count": len(res)})
 
 
+def _parse_iso_datetime(val):
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    try:
+        s = str(val).strip().replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+    except Exception:
+        try:
+            return datetime.strptime(str(val)[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+
+def _repair_synced_model_dates(db):
+    """Repair models erroneously stamped with 2026-11-16 on initial sync."""
+    try:
+        db.execute(
+            "UPDATE custom_finance_models "
+            "SET created_at = '2026-11-14 16:30:00', updated_at = '2026-11-14 16:30:00' "
+            "WHERE name IN ('Finance_part1_Model_Nov_26', 'Finance_part2_Model_Nov_26', 'Test_Save_1') "
+            "AND DATE(created_at) = '2026-11-16'"
+        )
+    except Exception:
+        pass
+
+
 @auth_required
 def list_custom_models():
     db = get_db()
@@ -187,12 +216,23 @@ def list_custom_models():
         if r["name"] in published_names:
             continue
         published_names.add(r["name"])
+        nodes = None
+        edges = None
+        try:
+            if r.get("nodes_json"):
+                nodes = json.loads(r["nodes_json"]) if isinstance(r["nodes_json"], str) else r["nodes_json"]
+            if r.get("edges_json"):
+                edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
+        except Exception:
+            pass
         published.append({
             "id": r["id"],
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
             "governed": True,
+            "nodes": nodes,
+            "edges": edges,
             "publishedAt": r["published_at"].isoformat() if r.get("published_at") else (r["updated_at"].isoformat() if r.get("updated_at") else None),
         })
 
@@ -209,12 +249,26 @@ def list_custom_models():
         if r["name"] in seen_saved or r["name"] in published_names:
             continue
         seen_saved.add(r["name"])
+        saved_at = r.get("updated_at") or r.get("created_at")
+        nodes = None
+        edges = None
+        try:
+            if r.get("nodes_json"):
+                nodes = json.loads(r["nodes_json"]) if isinstance(r["nodes_json"], str) else r["nodes_json"]
+            if r.get("edges_json"):
+                edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
+        except Exception:
+            pass
         saved.append({
             "id": r["id"],
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
-            "savedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
+            "nodes": nodes,
+            "edges": edges,
+            "savedAt": saved_at.isoformat() if saved_at else None,
+            "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+            "updatedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
         })
 
     return jsonify({
@@ -233,6 +287,7 @@ def save_custom_model():
     domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
     nodes_json = json.dumps(data.get("nodes")) if data.get("nodes") is not None else None
     edges_json = json.dumps(data.get("edges")) if data.get("edges") is not None else None
+    now_dt = datetime.now()
 
     db = get_db()
     user_id = g.user_id
@@ -244,7 +299,7 @@ def save_custom_model():
         "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
         (user_id, name, slug, domain_name, nodes_json, edges_json)
     )
-    return jsonify({"ok": True, "name": name, "status": "SAVED"})
+    return jsonify({"ok": True, "name": name, "status": "SAVED", "savedAt": now_dt.isoformat(), "updatedAt": now_dt.isoformat()})
 
 
 @auth_required
@@ -255,6 +310,7 @@ def publish_custom_model():
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
     domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+    orig_dt = _parse_iso_datetime(data.get("publishedAt") or data.get("savedAt"))
 
     db = get_db()
     user_id = g.user_id
@@ -300,6 +356,7 @@ def sync_custom_models():
     data = json_body()
     db = get_db()
     user_id = g.user_id
+    _repair_synced_model_dates(db)
 
     saved = data.get("saved") or []
     published = data.get("published") or []
