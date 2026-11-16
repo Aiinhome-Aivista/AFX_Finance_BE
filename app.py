@@ -169,6 +169,14 @@ def create_app() -> Flask:
     def api_workflow_blocks(slug):
         return workflow_controller.confirm_blocks(slug)
 
+    @app.route("/api/domains/<slug>/reset", methods=["POST"])
+    def api_workflow_reset_domain(slug):
+        return workflow_controller.reset_domain(slug)
+
+    @app.route("/api/workspace/reset", methods=["POST"])
+    def api_workspace_reset():
+        return workflow_controller.reset_all()
+
     # ============================================================
     # 5. Conversation / Chat Endpoints
     # ============================================================

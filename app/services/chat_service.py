@@ -290,6 +290,8 @@ class ChatService:
         wf = self._wf(user_id, domain)
         conv = self.convs.get(user_id, wf["id"])
         if not conv:
+            if not wf.get("finalized_version_number"):
+                return self.start(user_id, domain)
             return {"conversation_id": None, "messages": [], "open_question": None, "progress": {"answered": 0, "planned": None, "plan_complete": False},
                     "pending_change_count": 0, "engine": self.engine, "llm_enabled": bool(self.llm), "finalized": bool(wf["finalized_version_number"])}
         return self.snapshot(user_id, wf, conv)
@@ -297,8 +299,9 @@ class ChatService:
     def focus(self, user_id, domain, node_key):
         """Jump the interview to explore a chosen entity with LLM."""
         wf = self._wf(user_id, domain)
-        if wf["finalized_version_number"]:
-            raise ConflictError("The ontology is finalised; re-open it to continue the interview.")
+        if wf.get("finalized_version_number"):
+            self.wfs.on_reopened(wf)
+            wf = self._wf(user_id, domain)
         conv = self.convs.get(user_id, wf["id"])
         if not conv:
             raise ConflictError("Start the conversation first.")
@@ -317,8 +320,9 @@ class ChatService:
     # ------------------------------------------------------------------ answer & dynamic graph update
     def answer(self, user_id, domain, text):
         wf = self._wf(user_id, domain)
-        if wf["finalized_version_number"]:
-            raise ConflictError("The ontology is finalised; re-open it to continue the interview.")
+        if wf.get("finalized_version_number"):
+            self.wfs.on_reopened(wf)
+            wf = self._wf(user_id, domain)
         text = clean_text(text, MAX_ANSWER_CHARS)
         if not text:
             raise ValidationError("Please type an answer (or say “skip”).")
@@ -970,8 +974,9 @@ class ChatService:
     # ------------------------------------------------------------------ propose
     def propose(self, user_id, domain):
         wf = self._wf(user_id, domain)
-        if wf["finalized_version_number"]:
-            raise ConflictError("The ontology is finalised; re-open it to propose further changes.")
+        if wf.get("finalized_version_number"):
+            self.wfs.on_reopened(wf)
+            wf = self._wf(user_id, domain)
         conv = self.convs.get(user_id, wf["id"])
         if not conv:
             raise ConflictError("Start the conversation first.")
