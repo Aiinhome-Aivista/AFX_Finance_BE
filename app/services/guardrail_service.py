@@ -319,14 +319,25 @@ class DomainGuardrailService:
             }
 
         # 2. Check for gibberish / keyboard mash (e.g. "asdfghjkl", "123123123", "????!!!!")
+        words = clean_text.split()
         has_letters = bool(re.search(r"[a-zA-Z\u0980-\u09FF]", clean_text))
         vowel_check = bool(re.search(r"[aeiouyAEIOUY\u0985-\u0994\u09BE-\u09CC]", clean_text))
-        consecutive_same = bool(re.search(r"(.)\1{3,}", clean_text))
-        consecutive_consonants = bool(re.search(r"[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{5,}", clean_text))
-        is_keyboard_mash = any(mash in lower_text for mash in ("asdf", "hjkl", "qwerty", "zxcvb"))
         is_only_digits = clean_text.isdigit()
+        consecutive_same_letter = bool(re.search(r"([a-zA-Z\u0980-\u09FF])\1{3,}", clean_text))
+        is_keyboard_mash = any(mash in lower_text for mash in ("asdf", "hjkl", "qwerty", "zxcvb"))
+        # Check if any single word has excessive consonants (>=7 consecutive without vowels, excluding y which acts as a vowel)
+        has_crazy_consonants = bool(re.search(r"[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{7,}", clean_text))
 
-        if not has_letters or is_only_digits or (len(clean_text) > 6 and not vowel_check) or consecutive_same or consecutive_consonants or is_keyboard_mash:
+        is_gibberish = (
+            not has_letters or
+            is_only_digits or
+            is_keyboard_mash or
+            consecutive_same_letter or
+            has_crazy_consonants or
+            (len(words) == 1 and len(clean_text) > 5 and not vowel_check)
+        )
+
+        if is_gibberish:
             return {
                 "is_valid": False,
                 "domain_key": domain_key,
