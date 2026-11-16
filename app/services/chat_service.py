@@ -629,7 +629,7 @@ class ChatService:
                     "TOPIC": q["topic"],
                     "CLIENT_ANSWER": text,
                     "ALLOWED_OPS": {
-                        "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?"},
+                        "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?", "traversal_path": "str? (When and why to traverse this entity)", "stop_criteria": "str? (Under what conditions NOT to use or traverse this entity - guardrails)"},
                         "update_node": {"node_key": "str", "name": "str?", "add_attributes": "[str]?", "remove_attributes": "[str]?", "add_formulas": "[str]?", "append_note": "str?", "definition": "str?"},
                         "add_edge": {"source": "new node name or existing entity key/name", "target": "existing entity key/name or new node name", "label": "str e.g. relates to, feeds, categorizes, defines"},
                         "remove_edge": {"source": "key", "target": "key"},
@@ -799,7 +799,7 @@ class ChatService:
                     "ACTIVE_GRAPH_EDGES": [{"source": s, "target": t, "label": l} for (s, t, l) in list(state.edges.keys())[:80]],
                     "USER_REQUEST": text,
                     "ALLOWED_OPS": {
-                        "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?"},
+                        "add_node": {"name": "str", "definition": "str?", "attributes": "[str]?", "kind": "entity|experience", "node_key": "str?", "traversal_path": "str? (When and why to traverse this entity)", "stop_criteria": "str? (Under what conditions NOT to use or traverse this entity - guardrails)"},
                         "update_node": {"node_key": "str", "name": "str?", "add_attributes": "[str]?", "remove_attributes": "[str]?", "add_formulas": "[str]?", "append_note": "str?", "definition": "str?"},
                         "add_edge": {"source": "existing key|name", "target": "existing key|name", "label": "str"},
                         "remove_edge": {"source": "key", "target": "key"},
