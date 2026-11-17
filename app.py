@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from app import create_base_app
 from controller import (
+    analyst_controller,
     auth_controller,
     chat_controller,
     domain_controller,
@@ -308,6 +309,17 @@ def create_app() -> Flask:
     @app.route("/api/domains/<slug>/evaluation/run-benchmark", methods=["POST"])
     def api_evaluation_run_benchmark(slug):
         return evaluation_controller.run_benchmark(slug)
+
+    # ============================================================
+    # Analyst: published-model dashboard
+    # ============================================================
+    @app.route("/api/published/<int:wf_id>/dashboard", methods=["GET"])
+    def api_published_dashboard(wf_id):
+        return analyst_controller.dashboard(wf_id)
+
+    @app.route("/api/published/<int:wf_id>/chat", methods=["POST"])
+    def api_published_chat(wf_id):
+        return analyst_controller.chat(wf_id)
 
     return app
 

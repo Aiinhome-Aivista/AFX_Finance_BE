@@ -205,7 +205,7 @@ def list_custom_models():
     db = get_db()
     user_id = g.user_id
     pub_rows = db.query(
-        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
+        "SELECT id, user_id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
         "FROM custom_finance_models WHERE status = 'PUBLISHED' OR published_at IS NOT NULL "
         "ORDER BY COALESCE(published_at, updated_at) DESC"
     )
@@ -225,8 +225,14 @@ def list_custom_models():
                 edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
         except Exception:
             pass
+        # The owner's workflow for this domain holds the uploaded data the Analyst dashboard reads.
+        wf_row = db.one(
+            "SELECT w.id FROM workflows w JOIN domains d ON d.id = w.domain_id WHERE w.user_id = %s AND d.slug = %s",
+            (r["user_id"], str(r["slug"] or "").replace("_", "-").lower()),
+        )
         published.append({
             "id": r["id"],
+            "workflow_id": wf_row["id"] if wf_row else None,
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
