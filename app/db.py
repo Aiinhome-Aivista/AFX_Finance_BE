@@ -39,7 +39,14 @@ class Session:
         self._pool_key = pool_key
         self._broken = False
 
+    def _ensure_live_conn(self):
+        try:
+            self.conn.ping(reconnect=True)
+        except Exception:
+            pass
+
     def query(self, sql, params=None):
+        self._ensure_live_conn()
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params or ())
@@ -49,6 +56,7 @@ class Session:
             raise
 
     def one(self, sql, params=None):
+        self._ensure_live_conn()
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params or ())
@@ -58,6 +66,7 @@ class Session:
             raise
 
     def execute(self, sql, params=None):
+        self._ensure_live_conn()
         try:
             with self.conn.cursor() as cur:
                 return cur.execute(sql, params or ())
@@ -66,6 +75,7 @@ class Session:
             raise
 
     def insert(self, sql, params=None):
+        self._ensure_live_conn()
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params or ())
@@ -142,7 +152,7 @@ def connect(cfg, database=True):
             return pymysql.connect(
                 host=cfg.DB_HOST, port=cfg.DB_PORT, user=cfg.DB_USER, password=cfg.DB_PASSWORD,
                 database=cfg.DB_NAME if database else None, charset="utf8mb4", cursorclass=DictCursor, autocommit=True,
-                connect_timeout=5, read_timeout=15, write_timeout=15,
+                connect_timeout=10, read_timeout=120, write_timeout=120,
             )
         except pymysql.err.OperationalError as e:
             last_exc = e

@@ -434,6 +434,14 @@ class AnalystChatService:
         return {"type": "line" if is_time else "bar", "title": f"{m[0]} by {g[0]}", "subtitle": "", "data": data}
 
     # ------------------------------------------------------------------ main
+    def _route_intent(self, question: str) -> str:
+        """Determines whether query requires numeric aggregation, semantic RAG retrieval, or hybrid."""
+        q_low = question.lower()
+        agg_keywords = ["sum", "total", "average", "avg", "mean", "highest", "lowest", "top", "trend", "max", "min", "count", "by ", "per "]
+        if any(k in q_low for k in agg_keywords):
+            return "aggregation"
+        return "hybrid"
+
     def ask(self, user_id, role, workflow_id, question, history=None):
         question = re.sub(r"\s+", " ", str(question or "")).strip()
         if not question:

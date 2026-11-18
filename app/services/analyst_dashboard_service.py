@@ -191,6 +191,32 @@ class AnalystDashboardService:
             return {"status": "no_data", "message": msg,
                     "summary": None, "kpis": [], "charts": [], "tables": [], "data_sources": sources, "warnings": warnings,
                     "date_range": None, "generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+
+        # Multi-Stage Dynamic KPI & Grounded Intelligence Pipeline
+        try:
+            from .dynamic_kpi_engine import DynamicKpiEngine
+            engine = DynamicKpiEngine(self.db, self.cfg, self.llm)
+            uploaded_meta = engine.get_uploaded_dataset(model["workflow_id"])
+            if uploaded_meta and uploaded_meta.get("df") is not None and len(uploaded_meta["df"]) > 0:
+                raw_df = uploaded_meta["df"]
+                data_profile = engine.profile_dataset(raw_df)
+                twin_context = engine.get_twin_context(model["workflow_id"], model["slug"])
+                kpi_plan = engine.llm_generate_kpi_plan(data_profile, twin_context)
+                verified_kpis = engine.execute_and_validate_kpis(raw_df, kpi_plan, uploaded_meta)
+                if verified_kpis:
+                    built["kpis"] = verified_kpis
+                dynamic_charts = engine.generate_dynamic_charts(raw_df, data_profile)
+                if dynamic_charts:
+                    built["charts"] = dynamic_charts
+                grounded_summary = engine.generate_grounded_summary(model["name"], built["kpis"], built["charts"], data_profile)
+                if grounded_summary:
+                    return {"status": "ready", "message": None, "summary": grounded_summary, "kpis": built["kpis"],
+                            "charts": built["charts"], "tables": built["tables"], "data_sources": sources, "warnings": warnings,
+                            "date_range": built["date_range"], "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                            "upload_id": uploaded_meta.get("upload_id"), "session_id": uploaded_meta.get("session_id")}
+        except Exception as e:
+            log.warning("Dynamic KPI pipeline fallback to standard profiler: %s", e)
+
         return {"status": "ready", "message": None, "summary": self._summary(model, built), "kpis": built["kpis"],
                 "charts": built["charts"], "tables": built["tables"], "data_sources": sources, "warnings": warnings,
                 "date_range": built["date_range"], "generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}

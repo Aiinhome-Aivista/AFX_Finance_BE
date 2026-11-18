@@ -165,6 +165,26 @@ def process_file(db, cfg, file_id):
         mapping = map_terms(state, parsed["terms"], parsed["text"], {r["node_key"]: r["canon_attributes"] for r in refs})
         files.set_status(file_id, "processed", None, parsed["metadata"], parsed["preview"])
         files.update_job(job["id"], "succeeded", None, {"mapping": mapping})
+
+        # Multi-Track Intelligence Pipeline: Trigger JSON DB Store, Guardrails, KPI Selection & RAG
+        if f["ext"] in ("csv", "tsv", "xlsx", "xls"):
+            try:
+                from .telemetry_pipeline_service import TelemetryIngestionService
+                from ..llm.base import llm_from_config
+                pipeline_llm = llm_from_config(cfg)
+                pipeline_svc = TelemetryIngestionService(db, cfg, pipeline_llm)
+                slug = wf.domain.get("slug") or "finance"
+                pipeline_svc.process_telemetry_upload(
+                    user_id=f["user_id"],
+                    workflow_id=f["workflow_id"],
+                    slug=slug,
+                    file_path=path,
+                    file_name=f["original_name"],
+                    ext=f["ext"]
+                )
+            except Exception as pe:
+                log.warning("Telemetry intelligence pipeline background execution: %s", pe)
+
         if conv:
             from ..repositories.conversations import ConversationRepository
             matched_n = mapping.get("stats", {}).get("matched_terms", 0)
