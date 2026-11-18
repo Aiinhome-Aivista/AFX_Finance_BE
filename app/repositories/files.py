@@ -54,6 +54,40 @@ class FileRepository:
             r["result"] = jload(r["result"], None)
         return r
 
+    def save_content(self, file_id, content: bytes):
+        self._ensure_blob_table()
+        try:
+            self.db.execute(
+                "INSERT INTO uploaded_file_blobs(file_id, content) VALUES (%s, %s) "
+                "ON DUPLICATE KEY UPDATE content = VALUES(content)",
+                (file_id, content)
+            )
+        except Exception:
+            pass
+
+    def get_content(self, file_id):
+        self._ensure_blob_table()
+        try:
+            row = self.db.one("SELECT content FROM uploaded_file_blobs WHERE file_id=%s", (file_id,))
+            if row and row.get("content"):
+                return bytes(row["content"])
+        except Exception:
+            pass
+        return None
+
+    def _ensure_blob_table(self):
+        try:
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS uploaded_file_blobs ("
+                "  file_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,"
+                "  content LONGBLOB NOT NULL,"
+                "  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                "  CONSTRAINT fk_file_blobs_file FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE CASCADE"
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            )
+        except Exception:
+            pass
+
     def update_job(self, job_id, status, error=None, result=None):
         self.db.execute(
             "UPDATE processing_jobs SET status=%s, error=%s, result=COALESCE(%s,result), "

@@ -226,9 +226,12 @@ def list_custom_models():
         except Exception:
             pass
         # The owner's workflow for this domain holds the uploaded data the Analyst dashboard reads.
+        clean_slug = str(r["slug"] or "").replace("_", "-").lower()
         wf_row = db.one(
-            "SELECT w.id FROM workflows w JOIN domains d ON d.id = w.domain_id WHERE w.user_id = %s AND d.slug = %s",
-            (r["user_id"], str(r["slug"] or "").replace("_", "-").lower()),
+            "SELECT w.id FROM workflows w JOIN domains d ON d.id = w.domain_id "
+            "WHERE (w.name = %s OR (w.user_id = %s AND d.slug = %s) OR d.slug = %s) "
+            "ORDER BY (w.name = %s) DESC, (w.finalized_version_number IS NOT NULL) DESC, (w.user_id = %s) DESC, w.updated_at DESC, w.id DESC LIMIT 1",
+            (r["name"], r["user_id"], clean_slug, clean_slug, r["name"], r["user_id"]),
         )
         published.append({
             "id": r["id"],

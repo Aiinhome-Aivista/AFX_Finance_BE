@@ -79,6 +79,11 @@ class FileService:
         latest_v = self.db.one("SELECT MAX(version_number) as m FROM user_graph_versions WHERE workflow_id=%s", (wf["id"],))
         ver_num = latest_v["m"] if latest_v and latest_v.get("m") else (wf.get("finalized_version_number") or 0)
         fid = self.files.create(user_id, wf["id"], domain["id"], ver_num, original, stored, ext, size, h.hexdigest())
+        try:
+            if path.exists():
+                self.files.save_content(fid, path.read_bytes())
+        except Exception:
+            pass
         self.files.create_job(fid, user_id)
         if self.cfg.PROCESSING_MODE == "sync":
             process_file(self.db, self.cfg, fid)
@@ -129,6 +134,18 @@ def process_file(db, cfg, file_id):
     files.update_job(job["id"], "running")
     files.set_status(file_id, "processing")
     path = Path(cfg.UPLOAD_DIR) / str(f["user_id"]) / f["stored_name"]
+    if not path.exists():
+        blob = files.get_content(file_id)
+        if blob:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(blob)
+    elif path.exists():
+        # Backfill MySQL blob if missing
+        try:
+            if not files.get_content(file_id):
+                files.save_content(file_id, path.read_bytes())
+        except Exception:
+            pass
     conv = db.one("SELECT id FROM conversations WHERE workflow_id=%s", (f["workflow_id"],))
     if conv:
         from ..repositories.conversations import ConversationRepository

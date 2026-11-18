@@ -84,6 +84,23 @@ class AnalystDashboardService:
         p = (root / str(f["user_id"]) / f["stored_name"]).resolve()
         if root not in p.parents:  # never read outside the upload dir
             raise ForbiddenError("Invalid file location.")
+        if not p.exists():
+            from ..repositories.files import FileRepository
+            try:
+                blob = FileRepository(self.db).get_content(f["id"])
+                if blob:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(blob)
+            except Exception as ex:
+                log.warning("Could not restore file %s from database: %s", f.get("id"), ex)
+        elif p.exists():
+            try:
+                from ..repositories.files import FileRepository
+                repo = FileRepository(self.db)
+                if not repo.get_content(f["id"]):
+                    repo.save_content(f["id"], p.read_bytes())
+            except Exception:
+                pass
         return p
 
     @staticmethod
