@@ -362,47 +362,6 @@ def delete_custom_model(name: str):
 
 @auth_required
 def sync_custom_models():
-    data = json_body()
-    db = get_db()
-    user_id = g.user_id
-    _repair_synced_model_dates(db)
-
-    saved = data.get("saved") or []
-    published = data.get("published") or []
-
-    for s in saved:
-        s_name = (s.get("name") or "").strip()
-        if not s_name:
-            continue
-        s_slug = s.get("slug") or "planning-budgeting-forecasting"
-        s_domain = s.get("domainName") or "Planning, Budgeting and Forecasting"
-        db.execute(
-            "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status) "
-            "VALUES (%s, %s, %s, %s, 'SAVED') "
-            "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), "
-            "status=IF(status='PUBLISHED' OR published_at IS NOT NULL, 'PUBLISHED', status)",
-            (user_id, s_name, s_slug, s_domain)
-        )
-
-    for p in published:
-        p_name = (p.get("name") or "").strip()
-        if not p_name:
-            continue
-        p_slug = p.get("slug") or "planning-budgeting-forecasting"
-        p_domain = p.get("domainName") or "Planning, Budgeting and Forecasting"
-        db.execute(
-            "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
-            "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
-            "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW()), updated_at=NOW()",
-            (user_id, p_name, p_slug, p_domain)
-        )
-        try:
-            db.execute(
-                "UPDATE custom_finance_models SET status='PUBLISHED', published_at=COALESCE(published_at, NOW()) WHERE name=%s",
-                (p_name,)
-            )
-        except Exception:
-            pass
-
+    """Disabled permanently: Prevents client localStorage/cache from auto-re-inserting truncated models."""
     return list_custom_models()
 
