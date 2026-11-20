@@ -344,6 +344,12 @@ class ReferenceService:
             logging.getLogger(__name__).warning("Could not load user graph for flows: %s", e)
         return {}, []
 
+    def _norm(self, s):
+        if not s:
+            return ""
+        import re
+        return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
     # ------------------------------------------------------------------ flows
     def flows(self, slug=None, user_id=None):
         roles = {}
@@ -351,26 +357,63 @@ class ReferenceService:
             roles = self.repo.domain_node_roles(self.domain(slug)["id"])
         user_nodes, user_edges = self._user_graph_map(user_id, slug)
 
+        # Build alias map for user nodes (by key, name, and normalized versions)
+        node_alias_to_key = {}
+        added_nodes = {}
+        for k, n in user_nodes.items():
+            node_alias_to_key[k] = k
+            node_alias_to_key[self._norm(k)] = k
+            if n.get("name"):
+                node_alias_to_key[n["name"]] = k
+                node_alias_to_key[self._norm(n["name"])] = k
+            if n.get("ref_name"):
+                node_alias_to_key[n["ref_name"]] = k
+                node_alias_to_key[self._norm(n["ref_name"])] = k
+
+            is_custom = (
+                n.get("change_state") in ("added", "modified")
+                or n.get("origin") in ("user", "customization")
+                or n.get("role") == "client"
+                or (n.get("ref_name") and n.get("name") != n.get("ref_name"))
+                or bool(n.get("notes"))
+            )
+            if is_custom and (n.get("change_state") == "added" or n.get("origin") in ("user", "customization") or n.get("role") == "client"):
+                added_nodes[k] = n
+
         out = []
         for f in self.repo.flows():
             steps = self.repo.flow_steps(f["id"])
             keys = [s["node_key"] for s in steps]
-            flow_keys_set = set(keys)
             augmented_keys = list(keys)
+            flow_key_norms = {self._norm(k): k for k in augmented_keys}
+
+            is_this_domain = bool(slug) and any(roles.get(k) == "core" for k in keys)
 
             # Insert any newly added domain nodes that connect to this flow
             if user_nodes and user_edges:
-                added_nodes = {k: n for k, n in user_nodes.items() if n.get("change_state") == "added"}
                 for ue in user_edges:
-                    src, tgt = ue.get("source"), ue.get("target")
-                    if src in added_nodes and tgt in flow_keys_set and src not in flow_keys_set:
-                        idx = augmented_keys.index(tgt) if tgt in augmented_keys else len(augmented_keys)
-                        augmented_keys.insert(idx, src)
-                        flow_keys_set.add(src)
-                    elif tgt in added_nodes and src in flow_keys_set and tgt not in flow_keys_set:
-                        idx = augmented_keys.index(src) + 1 if src in augmented_keys else len(augmented_keys)
-                        augmented_keys.insert(idx, tgt)
-                        flow_keys_set.add(tgt)
+                    raw_src, raw_tgt = ue.get("source"), ue.get("target")
+                    src_k = node_alias_to_key.get(raw_src) or node_alias_to_key.get(self._norm(raw_src)) or raw_src
+                    tgt_k = node_alias_to_key.get(raw_tgt) or node_alias_to_key.get(self._norm(raw_tgt)) or raw_tgt
+
+                    tgt_matched = flow_key_norms.get(self._norm(tgt_k))
+                    src_matched = flow_key_norms.get(self._norm(src_k))
+
+                    if src_k in added_nodes and tgt_matched and src_k not in augmented_keys:
+                        idx = augmented_keys.index(tgt_matched)
+                        augmented_keys.insert(idx, src_k)
+                        flow_key_norms[self._norm(src_k)] = src_k
+                    elif tgt_k in added_nodes and src_matched and tgt_k not in augmented_keys:
+                        idx = augmented_keys.index(src_matched) + 1
+                        augmented_keys.insert(idx, tgt_k)
+                        flow_key_norms[self._norm(tgt_k)] = tgt_k
+
+            # If this flow is the primary flow for the active domain, ensure all domain-added nodes are included
+            if is_this_domain and added_nodes:
+                for ak in added_nodes:
+                    if ak not in augmented_keys:
+                        augmented_keys.append(ak)
+                        flow_key_norms[self._norm(ak)] = ak
 
             # Resolve names for each step
             all_ref_nodes = {n["node_key"]: n for n in self.repo.nodes_by_keys(augmented_keys)} if augmented_keys else {}
@@ -378,15 +421,17 @@ class ReferenceService:
             step_names = []
             has_customized_step = False
             for k in augmented_keys:
+                resolved_un = user_nodes.get(k) or user_nodes.get(node_alias_to_key.get(k)) or user_nodes.get(node_alias_to_key.get(self._norm(k)))
                 ref_n = all_ref_nodes.get(k)
-                if k in user_nodes:
-                    un = user_nodes[k]
-                    step_names.append(un["name"])
+                if resolved_un:
+                    step_names.append(resolved_un["name"])
                     is_custom = (
-                        un.get("change_state") in ("modified", "added")
-                        or (un.get("ref_name") and un.get("name") != un.get("ref_name"))
-                        or bool(un.get("notes"))
-                        or (ref_n and un.get("name") != ref_n.get("name"))
+                        resolved_un.get("change_state") in ("modified", "added")
+                        or resolved_un.get("origin") in ("user", "customization")
+                        or resolved_un.get("role") == "client"
+                        or (resolved_un.get("ref_name") and resolved_un.get("name") != resolved_un.get("ref_name"))
+                        or bool(resolved_un.get("notes"))
+                        or (ref_n and resolved_un.get("name") != ref_n.get("name"))
                     )
                     if is_custom:
                         has_customized_step = True
@@ -403,7 +448,7 @@ class ReferenceService:
                 "narrative": dynamic_narrative,
                 "step_count": len(augmented_keys),
                 "customized": has_customized_step,
-                "relevant": bool(slug) and any(roles.get(k) == "core" for k in augmented_keys),
+                "relevant": is_this_domain,
                 "touches_domain": bool(slug) and any(k in roles for k in augmented_keys)
             })
         return out
@@ -413,21 +458,61 @@ class ReferenceService:
         if not f:
             raise NotFoundError("Unknown flow.")
         user_nodes, user_edges = self._user_graph_map(user_id, slug)
+        roles = {}
+        if slug:
+            roles = self.repo.domain_node_roles(self.domain(slug)["id"])
+
+        node_alias_to_key = {}
+        added_nodes = {}
+        for k, n in user_nodes.items():
+            node_alias_to_key[k] = k
+            node_alias_to_key[self._norm(k)] = k
+            if n.get("name"):
+                node_alias_to_key[n["name"]] = k
+                node_alias_to_key[self._norm(n["name"])] = k
+            if n.get("ref_name"):
+                node_alias_to_key[n["ref_name"]] = k
+                node_alias_to_key[self._norm(n["ref_name"])] = k
+
+            is_custom = (
+                n.get("change_state") in ("added", "modified")
+                or n.get("origin") in ("user", "customization")
+                or n.get("role") == "client"
+                or (n.get("ref_name") and n.get("name") != n.get("ref_name"))
+                or bool(n.get("notes"))
+            )
+            if is_custom and (n.get("change_state") == "added" or n.get("origin") in ("user", "customization") or n.get("role") == "client"):
+                added_nodes[k] = n
+
         steps = self.repo.flow_steps(f["id"])
         keys = [s["node_key"] for s in steps]
-        flow_keys_set = set(keys)
         augmented_steps = list(steps)
+        flow_key_norms = {self._norm(k): k for k in keys}
+        is_this_domain = bool(slug) and any(roles.get(k) == "core" for k in keys)
 
         if user_nodes and user_edges:
-            added_nodes = {k: n for k, n in user_nodes.items() if n.get("change_state") == "added"}
             for ue in user_edges:
-                src, tgt = ue.get("source"), ue.get("target")
-                if src in added_nodes and tgt in flow_keys_set and src not in flow_keys_set:
-                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": src})
-                    flow_keys_set.add(src)
-                elif tgt in added_nodes and src in flow_keys_set and tgt not in flow_keys_set:
-                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": tgt})
-                    flow_keys_set.add(tgt)
+                raw_src, raw_tgt = ue.get("source"), ue.get("target")
+                src_k = node_alias_to_key.get(raw_src) or node_alias_to_key.get(self._norm(raw_src)) or raw_src
+                tgt_k = node_alias_to_key.get(raw_tgt) or node_alias_to_key.get(self._norm(raw_tgt)) or raw_tgt
+
+                tgt_matched = flow_key_norms.get(self._norm(tgt_k))
+                src_matched = flow_key_norms.get(self._norm(src_k))
+
+                existing_keys = {s["node_key"] for s in augmented_steps}
+                if src_k in added_nodes and tgt_matched and src_k not in existing_keys:
+                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": src_k})
+                    flow_key_norms[self._norm(src_k)] = src_k
+                elif tgt_k in added_nodes and src_matched and tgt_k not in existing_keys:
+                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": tgt_k})
+                    flow_key_norms[self._norm(tgt_k)] = tgt_k
+
+        if is_this_domain and added_nodes:
+            existing_keys = {s["node_key"] for s in augmented_steps}
+            for ak in added_nodes:
+                if ak not in existing_keys:
+                    augmented_steps.append({"step_order": len(augmented_steps) + 1, "node_key": ak})
+                    flow_key_norms[self._norm(ak)] = ak
 
         all_keys = [s["node_key"] for s in augmented_steps]
         missing_keys = [k for k in all_keys if k not in user_nodes]

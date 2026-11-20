@@ -354,6 +354,14 @@ class ChatService:
                     "confidence": guardrail["confidence"],
                     "domain_key": guardrail["domain_key"]
                 })
+                # Re-ask / repeat the active question so the user is guided to answer it and chat continues until valid answer is provided
+                repeat_text = q.get("question_text") or q.get("text")
+                self.convs.add_message(conv["id"], "assistant", repeat_text, "question", {
+                    "question_id": q["id"],
+                    "node_key": q.get("node_key"),
+                    "topic": q.get("topic"),
+                    "repeated": True
+                })
             return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
 
         updated_graph_data = None
@@ -747,6 +755,7 @@ class ChatService:
         if not guardrail["is_valid"]:
             is_bn = any(ord(c) >= 0x0980 and ord(c) <= 0x09FF for c in text)
             guidance = guardrail.get("suggested_guidance_bn") if is_bn and guardrail.get("suggested_guidance_bn") else guardrail["suggested_guidance"]
+            open_q = self.convs.open_question(conv["id"])
             with self.db.transaction():
                 self.convs.add_message(conv["id"], "user", text, "message", {"node_key": node_key})
                 self.convs.add_message(conv["id"], "assistant", guidance, "ack", {
@@ -755,6 +764,14 @@ class ChatService:
                     "confidence": guardrail["confidence"],
                     "domain_key": guardrail["domain_key"]
                 })
+                if open_q:
+                    repeat_text = open_q.get("question_text") or open_q.get("text")
+                    self.convs.add_message(conv["id"], "assistant", repeat_text, "question", {
+                        "question_id": open_q["id"],
+                        "node_key": open_q.get("node_key"),
+                        "topic": open_q.get("topic"),
+                        "repeated": True
+                    })
             return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
 
         # Context build: full knowledge graph
