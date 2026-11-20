@@ -388,9 +388,9 @@ class DynamicKpiEngine:
     # -------------------------------------------------------------------------
     # Stage 10: Dynamic Charts Generation
     # -------------------------------------------------------------------------
-    def generate_dynamic_charts(self, df: pd.DataFrame, profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _template_charts(self, df: pd.DataFrame, profile: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Dynamically constructs suitable charts (bar, line, donut) from actual columns.
+        Rule-based fallback: constructs suitable charts (bar, line, donut) from actual columns.
         """
         charts = []
         dims = profile["dimensions"]
@@ -451,6 +451,121 @@ class DynamicKpiEngine:
 
         return charts
 
+    CHART_TYPES = ("bar", "line", "pie")
+    CHART_AGGS = ("sum", "avg", "count")
+    _PD_AGG = {"sum": "sum", "avg": "mean", "count": "count"}
+
+    def llm_generate_chart_plan(self, profile: Dict[str, Any], twin_ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """The LLM chooses WHAT to chart (type, grouping column, measure, aggregation, title). It never supplies values."""
+        if not self.llm or not profile["measures"]:
+            return []
+        schema = {
+            "measures": [{c: profile["columns"][c]["sample_values"]} for c in profile["measures"][:12]],
+            "dimensions": [{c: {"distinct": profile["columns"][c]["unique_count"], "sample": profile["columns"][c]["sample_values"]}}
+                           for c in profile["dimensions"][:10]],
+            "dates": profile["dates"][:3],
+            "twin_entities": twin_ctx.get("entities", [])[:10],
+        }
+        system = (
+            "You design the charts of a finance analytics dashboard. Choose 4 to 6 different, insightful charts for this dataset. "
+            'Each chart is an object: {"type": "bar"|"line"|"pie", "dimension": exact column name (for line use a date column), '
+            '"measure": exact numeric column name, "agg": "sum"|"avg"|"count", "title": short business title, '
+            '"subtitle": one short line}. Use bar for rankings, line for trends over a date column, pie only for a dimension with at most 8 distinct values. '
+            "Use ONLY column names present in the schema; never invent columns and never output data values. "
+            "Use averages (not sums) for rates, prices and percentages. Return ONLY a JSON array."
+        )
+        try:
+            raw = self.llm.complete(system, json.dumps(schema, indent=1), max_tokens=900)
+            m = re.search(r"\[.*\]", raw, re.DOTALL)
+            plan = json.loads(m.group(0)) if m else []
+        except Exception as e:
+            log.info("LLM chart planning failed (%s); using template charts", e)
+            return []
+        return [p for p in plan if isinstance(p, dict)][:6]
+
+    def execute_chart_plan(self, df: pd.DataFrame, plan: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Validate every LLM chart spec against the real columns and compute its data with pandas. Bad specs are dropped."""
+        cols, charts, seen = profile["columns"], [], set()
+        for i, p in enumerate(plan):
+            try:
+                typ, agg = str(p.get("type", "")).lower(), str(p.get("agg", "sum")).lower()
+                dim, meas = p.get("dimension"), p.get("measure")
+                if typ not in self.CHART_TYPES or agg not in self.CHART_AGGS or dim not in cols or meas not in cols:
+                    continue
+                if cols[meas]["type"] != "measure" or (typ == "line") != (cols[dim]["type"] == "date"):
+                    continue
+                if typ != "line" and cols[dim]["type"] != "dimension":
+                    continue
+                if typ == "pie" and cols[dim]["unique_count"] > 12:
+                    continue
+                key = (typ, dim, meas, agg)
+                if key in seen:
+                    continue
+                seen.add(key)
+                work = df[[dim, meas]].copy()
+                work[meas] = pd.to_numeric(work[meas], errors="coerce")
+                if typ == "line":
+                    work[dim] = pd.to_datetime(work[dim], errors="coerce")
+                    work = work.dropna(subset=[dim])
+                    if len(work) < 2:
+                        continue
+                    work["_g"] = work[dim].dt.to_period("M")
+                    g = work.groupby("_g")[meas].agg(self._PD_AGG[agg]).sort_index().tail(36)
+                else:
+                    g = work.groupby(dim, dropna=True)[meas].agg(self._PD_AGG[agg])
+                    g = g.sort_values(ascending=False).head(6 if typ == "pie" else 8)
+                data = [{"label": str(k), "value": round(float(v), 2)} for k, v in g.items() if math.isfinite(float(v))]
+                if len(data) < 2 or (typ == "pie" and any(d["value"] < 0 for d in data)):
+                    continue
+                verb = {"sum": "Sum", "avg": "Average", "count": "Count"}[agg]
+                charts.append({
+                    "id": f"chart_llm_{i}_{typ}", "type": typ,
+                    "title": str(p.get("title") or f"{meas.replace('_', ' ').title()} by {dim.replace('_', ' ').title()}")[:80],
+                    "subtitle": str(p.get("subtitle") or f"{verb} of {meas} by {dim}")[:120],
+                    "data": data, "source": "llm_planned",
+                })
+            except Exception as e:
+                log.info("chart spec skipped (%s): %s", e, p)
+        return charts
+
+    def generate_dynamic_charts(self, df: pd.DataFrame, profile: Dict[str, Any], twin_ctx: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """LLM-planned, pandas-computed charts; the rule-based templates fill in when the LLM is unavailable or yields too few."""
+        planned = self.execute_chart_plan(df, self.llm_generate_chart_plan(profile, twin_ctx or {}), profile)
+        if len(planned) >= 3:
+            return planned
+        have = {c["id"] for c in planned}
+        return planned + [c for c in self._template_charts(df, profile) if c["id"] not in have][: max(0, 4 - len(planned))]
+
+    @staticmethod
+    def _flatten_text(v) -> str:
+        """Models sometimes return the summary as a dict/list of paragraphs (or a stringified one); always hand back plain paragraphs."""
+        if isinstance(v, str):
+            t = v.strip()
+            if t[:1] in ("{", "["):
+                import ast
+                for loader in (json.loads, ast.literal_eval):
+                    try:
+                        return DynamicKpiEngine._flatten_text(loader(t))
+                    except Exception:
+                        continue
+                return re.sub(r"[{}\[\]]|'?Paragraph \d+'?\s*:", "", t).strip(" '\"")
+            return t
+        if isinstance(v, dict):
+            return "\n\n".join(x for x in (DynamicKpiEngine._flatten_text(i) for i in v.values()) if x)
+        if isinstance(v, (list, tuple)):
+            return "\n\n".join(x for x in (DynamicKpiEngine._flatten_text(i) for i in v) if x)
+        return "" if v is None else str(v).strip()
+
+    @staticmethod
+    def _numbers_supported(text: str, facts: Dict[str, Any]) -> bool:
+        """Reject prose that quotes a number absent from the verified facts."""
+        hay = re.sub(r"[,\s$%]", "", json.dumps(facts, default=str))
+        for num in re.findall(r"\d[\d,]*\.?\d*", text):
+            n = num.replace(",", "").rstrip(".")
+            if len(n) >= 2 and n not in hay:
+                return False
+        return True
+
     # -------------------------------------------------------------------------
     # Stage 10: LLM Generates Summary & Insights (Grounded in Verified KPIs)
     # -------------------------------------------------------------------------
@@ -486,17 +601,16 @@ class DynamicKpiEngine:
                 system_prompt = (
                     "You are the Lead Digital Twin Chief Financial Analyst. "
                     "Summarize performance insights based strictly on the provided verified facts. "
-                    "Rules: Never invent numbers or trends not supported by facts. "
-                    "Return JSON with 'title' (max 80 chars) and 'summary' (2 clear paragraphs)."
+                    "Rules: Never invent numbers or trends not supported by facts; quote figures exactly as given. "
+                    'Return JSON: {"title": string (max 80 chars), "summary": string of 2 short plain-text paragraphs separated by a blank line}. '
+                    "The summary value must be one string, not an object or list."
                 )
                 user_prompt = f"Verified Facts:\n{json.dumps(facts, indent=2)}"
                 out = self.llm.complete_json(system_prompt, user_prompt, max_tokens=600)
-                if out and out.get("title") and out.get("summary"):
-                    return {
-                        "title": str(out["title"]).strip(),
-                        "text": str(out["summary"]).strip(),
-                        "source": "llm_grounded"
-                    }
+                title, text = str(out.get("title", "")).strip(), self._flatten_text(out.get("summary"))
+                if title and text and self._numbers_supported(f"{title} {text}", facts):
+                    return {"title": title[:120], "text": text, "source": "llm_grounded"}
+                log.info("dashboard summary rejected (empty or unsupported numbers); using default summary")
             except Exception as e:
                 log.info("LLM summary synthesis skipped: %s", e)
 

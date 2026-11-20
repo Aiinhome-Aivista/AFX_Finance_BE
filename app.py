@@ -321,6 +321,14 @@ def create_app() -> Flask:
     def api_published_chat(wf_id):
         return analyst_controller.chat(wf_id)
 
+    @app.route("/api/published/<int:wf_id>/graph/metrics", methods=["GET"])
+    def api_published_graph_metrics(wf_id):
+        return analyst_controller.graph_metrics(wf_id)
+
+    @app.route("/api/published/<int:wf_id>/graph/metrics/review", methods=["POST"])
+    def api_published_graph_metric_review(wf_id):
+        return analyst_controller.review_metric(wf_id)
+
     return app
 
 

@@ -205,7 +205,7 @@ class AnalystDashboardService:
                 verified_kpis = engine.execute_and_validate_kpis(raw_df, kpi_plan, uploaded_meta)
                 if verified_kpis:
                     built["kpis"] = verified_kpis
-                dynamic_charts = engine.generate_dynamic_charts(raw_df, data_profile)
+                dynamic_charts = engine.generate_dynamic_charts(raw_df, data_profile, twin_context)
                 if dynamic_charts:
                     built["charts"] = dynamic_charts
                 grounded_summary = engine.generate_grounded_summary(model["name"], built["kpis"], built["charts"], data_profile)

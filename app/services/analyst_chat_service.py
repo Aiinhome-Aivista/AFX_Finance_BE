@@ -16,6 +16,8 @@ from collections import OrderedDict
 
 from ..errors import ValidationError
 from . import dataset_profiler as prof
+from . import evidence_service, executive_synthesizer as synth, intent_router_service as router
+from . import kgraph_metrics as kgm
 from .analyst_dashboard_service import AnalystDashboardService
 
 log = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ class AnalystChatService:
     def __init__(self, db, cfg, llm=None):
         self.dash = AnalystDashboardService(db, cfg, llm)
         self.llm = llm
+        self._graph_obj = None  # verified knowledge graph of the model being asked about (None until built)
 
     # ------------------------------------------------------------------ data
     def _tables(self, wf):
@@ -308,6 +311,10 @@ class AnalystChatService:
 
     def _best_col(self, phrase, summary, want):
         """Fuzzy-match a phrase to a column of the given roles: all phrase words must appear; shortest column name wins."""
+        if self._graph_obj:  # a verified business synonym ("sales" -> Gross_Sales_INR) beats fuzzy matching
+            syn = kgm.resolve_synonym(phrase, self._graph_obj, summary.get("name"), summary["roles"], want)
+            if syn:
+                return syn
         stop = {"the", "of", "a", "an", "total", "my", "our", "all"}
         pt = self._tokens(phrase) - stop
         if not pt:
@@ -434,14 +441,6 @@ class AnalystChatService:
         return {"type": "line" if is_time else "bar", "title": f"{m[0]} by {g[0]}", "subtitle": "", "data": data}
 
     # ------------------------------------------------------------------ main
-    def _route_intent(self, question: str) -> str:
-        """Determines whether query requires numeric aggregation, semantic RAG retrieval, or hybrid."""
-        q_low = question.lower()
-        agg_keywords = ["sum", "total", "average", "avg", "mean", "highest", "lowest", "top", "trend", "max", "min", "count", "by ", "per "]
-        if any(k in q_low for k in agg_keywords):
-            return "aggregation"
-        return "hybrid"
-
     def ask(self, user_id, role, workflow_id, question, history=None):
         question = re.sub(r"\s+", " ", str(question or "")).strip()
         if not question:
@@ -456,42 +455,188 @@ class AnalystChatService:
             return {"answer": "There is no readable tabular data for this published model yet, so I can't answer data questions. "
                               "Ask the Data Architect to upload the CSV/Excel file again.", "unanswerable": True, "follow_ups": [], "source": "rules"}
         schema = self._schema(tables)
+        self._graph_obj = self._graph(wf)
+        decision = router.route(question, self._known_terms(schema))
+        intent = decision.intent
+        overview = bool(router.DOC_RE.search(question) or router.WHY_RE.search(question))
+        documents = self._documents(wf, question) if intent != router.AGGREGATION else []  # AGGREGATION is never answered from text
+        evidence = evidence_service.retrieve(question, tables, documents, overview=overview) if intent != router.AGGREGATION else []
+        has_docs = any(e["source"] == "document" for e in evidence)
+        base = {"intent": intent, "intent_reason": decision.reason}
+        qualitative = intent == router.INSIGHT and (overview or has_docs)  # a figure may still be hiding in a vaguely worded question
+        if qualitative:
+            return {**base, **self._insight_answer(question, tables, evidence)}
 
-        spec, plan_src, plan_err, notes = None, "rules", None, []
-        rp = self._rule_plan(question, tables)
+        plan_src, plan_err, notes, diag = "rules", None, [], None
+        spec = result = None
+        hit = kgm.answer(question, tables, self._graph_obj, self._best_col) if (self._graph_obj and intent != router.HYBRID) else None
+        pending = None
+        if hit and hit.get("pending"):  # an unapproved metric must not be calculated, but must not block the parts we CAN answer
+            pending, hit = hit["pending"], None
+        if hit:  # the question names a verified metric from the knowledge graph: run its formula, no planner needed
+            spec, result, plan_src = hit["spec"], hit["result"], "graph"
+        rp = self._rule_plan(question, tables) if spec is None else None
         if rp:
             try:
                 spec = self.validate(rp, tables)
             except ValidationError as e:
                 plan_err = str(e)
+        if spec is None and intent == router.HYBRID:  # "why did X change": compute the change itself with an exact trend query
+            diag = self._diagnostic_spec(question, tables)
+            spec = diag["spec"] if diag else None
         if spec is None and self.llm:
             try:
                 raw = self._llm_plan(question, schema, history)
                 if raw.get("unanswerable"):
-                    return {"answer": f"I can't answer that from this model's data: {raw['unanswerable']}", "unanswerable": True,
-                            "follow_ups": self._suggestions(tables), "source": "llm"}
+                    if pending:
+                        return {**base, **self._pending_reply(pending, tables, question)}
+                    return {**base, "answer": f"I can't answer that from this model's data: {raw['unanswerable']}", "unanswerable": True,
+                            "follow_ups": synth.follow_ups(tables, None, question), "source": "llm"}
                 spec, notes = self.ground(question, self.validate(raw, tables))
                 plan_src = "llm"
             except Exception as e:  # untrusted/unusable plan or LLM down: say so, never guess
                 plan_err = str(e)
                 log.info("chat plan via LLM failed (%s)", e)
+        if spec is None and intent == router.HYBRID and evidence:
+            return {**base, **self._insight_answer(question, tables, evidence)}
+        if spec is None and pending:
+            return {**base, **self._pending_reply(pending, tables, question)}
         if spec is None:
-            return {"answer": "I couldn't turn that into a reliable query over this model's data"
-                              + (f" ({plan_err})" if plan_err else "") + ". Try naming the columns, e.g. one of the suggestions below.",
-                    "unanswerable": True, "follow_ups": self._suggestions(tables), "source": plan_src}
+            return {**base, "answer": "I couldn't turn that into a reliable query over this model's data"
+                                      + (f" ({plan_err})" if plan_err else "") + ". Try naming the columns, e.g. one of the suggestions below.",
+                    "unanswerable": True, "follow_ups": synth.follow_ups(tables, None, question), "source": plan_src}
 
         try:
-            result = self.execute(spec, tables)
+            if result is None:
+                result = self.execute(spec, tables)
         except ValidationError:
             raise
         except Exception:
             log.exception("chat execution failed")
-            return {"answer": "That query could not be run on this data. Try rephrasing it.", "unanswerable": True,
-                    "follow_ups": self._suggestions(tables), "source": plan_src}
-        return {"answer": self._det_answer(result, spec), "unanswerable": False,
+            return {**base, "answer": "That query could not be run on this data. Try rephrasing it.", "unanswerable": True,
+                    "follow_ups": synth.follow_ups(tables, None, question), "source": plan_src}
+
+        if intent == router.INSIGHT:
+            base["intent"], evidence = router.AGGREGATION, []  # it turned out to be a calculation after all
+        if hit:
+            evidence = [hit["evidence"]]
+        headline = hit["headline"] if hit else self._det_answer(result, spec)
+        drv = synth.drivers(result, spec, fmt=hit["fmt"] if hit else None)
+        if diag:
+            drv = drv[:2] + self._variance(tables, spec, diag)
+        answer, source = headline, plan_src
+        if intent == router.HYBRID:
+            worded = synth.narrate(self.llm, question, headline, drv, evidence)
+            if worded:
+                answer, source = worded, "llm"
+        extra = {}
+        if pending:
+            plain = re.sub(r"[\[\]]", "", pending["formula"])
+            answer += (f"\n\nNote: “{pending['name']}” (proposed as {plain}) is not approved by the Data Architect yet, so it is not included above.")
+            extra["pending_metric"] = {"name": pending["name"], "formula": plain}
+        return {**base, **extra, "answer": answer, "headline": headline, "unanswerable": False, "drivers": drv,
                 "table": {"columns": result["columns"], "rows": result["rows"]},
                 "chart": self._chart(result), "spec": spec, "matched_rows": result["matched_rows"], "notes": notes,
-                "follow_ups": self._suggestions(tables, spec), "source": plan_src}
+                "evidence": self._public_evidence(evidence), "follow_ups": synth.follow_ups(tables, spec, question), "source": source}
+
+    @staticmethod
+    def _pending_reply(m, tables, question):
+        plain = re.sub(r"[\[\]]", "", m["formula"])
+        return {"answer": f"“{m['name']}” is proposed as {plain}, but the Data Architect hasn't approved this definition yet, "
+                          "so I haven't calculated it. Once it is approved on the dashboard's metric review, I can answer this.",
+                "unanswerable": True, "source": "graph", "pending_metric": {"name": m["name"], "formula": plain},
+                "follow_ups": synth.follow_ups(tables, None, question)}
+
+    # ------------------------------------------------------------------ routing / insight helpers
+    @staticmethod
+    def _known_terms(schema):
+        terms = set()
+        for t in schema:
+            for c in t["columns"]:
+                terms.add(c["name"].replace("_", " "))
+                terms.update(str(v) for v in c.get("example_values", [])[:12])
+        return {t for t in terms if len(t) > 2}
+
+    def _graph(self, wf):
+        """Verified knowledge graph for this exact data version, or None. A missing graph is built in the background (never blocks)."""
+        try:
+            from .kgraph_builder_service import KGraphBuilderService
+            files, _ = self.dash._files(wf)
+            fp, wf_copy, cfg, llm = self.dash._fingerprint(wf, files), dict(wf), self.dash.cfg, self.llm
+            builder = KGraphBuilderService(self.dash.db, cfg, llm)
+            graph = builder.load(wf["id"], fp)
+            if graph is None:
+                builder.build_in_background(wf["id"], lambda db: AnalystChatService(db, cfg, llm)._tables(wf_copy), fp)
+                return None
+            from .kgraph_review_service import MetricReviewService
+            return MetricReviewService(self.dash.db, cfg, llm).annotate(graph, wf["id"])  # statuses: proposed / approved / rejected
+        except Exception:
+            log.exception("knowledge graph unavailable; answering without it")
+            return None
+
+    def _documents(self, wf, question):
+        """Passages from the model's uploaded PDF/Word/text files (ChromaDB + BM25). [] when there are none or retrieval is unavailable."""
+        try:
+            from .vector_store_service import DocumentSearch
+            files, _ = self.dash._files(wf)
+            return DocumentSearch(self.dash.db, self.dash.cfg).search(wf["id"], files, question, self.dash._path)
+        except Exception:
+            log.exception("document retrieval unavailable; answering from the data only")
+            return []
+
+    @staticmethod
+    def _public_evidence(evidence):
+        return [{"source": e["source"], "text": e["text"][:400], "citation": e.get("citation", "")} for e in evidence[:5]]
+
+    def _insight_answer(self, question, tables, evidence):
+        """Qualitative answer from retrieved evidence. With no documents it is grounded in computed facts about the data itself."""
+        notes = []
+        if not any(e["source"] == "document" for e in evidence):
+            notes.append("No documents were uploaded for this model, so this is based on facts computed from the data.")
+        lead = [e["text"] + (f" [{e['citation']}]" if e["source"] == "document" else "") for e in evidence[:3]]
+        headline = lead[0] if lead else "I couldn't find anything in this model's data related to that question."
+        worded = synth.narrate(self.llm, question, headline, lead[1:], evidence) if evidence else None
+        answer = worded or " ".join(lead) or headline
+        return {"answer": answer, "headline": headline, "unanswerable": not evidence, "drivers": [], "notes": notes,
+                "evidence": self._public_evidence(evidence), "follow_ups": synth.follow_ups(tables, None, question),
+                "source": "llm" if worded else "rules"}
+
+    def _diagnostic_spec(self, question, tables):
+        """For a 'why did <metric> change' question: a monthly-trend plan on the metric the question names, filtered to any
+        category value it mentions (e.g. 'West'). Returns {"spec", "measure", "date"} or None."""
+        tname = max(tables, key=lambda t: tables[t][0]["rows"])
+        summary, df = tables[tname]
+        roles = summary["roles"]
+        qt = self._tokens(question)
+        meas = [c for c, r in roles.items() if r == "measure"]
+        dcol = next((c for c, r in roles.items() if r == "date"), None)
+        if not meas or not dcol:
+            return None
+        best = max(meas, key=lambda c: (len(qt & self._tokens(c)), not prof.AVG_RE.search(c)))
+        filters = []
+        q = question.lower()
+        for c, r in roles.items():
+            if r == "dimension":
+                hit = next((v for v in df[c].dropna().astype(str).unique()[:200] if len(v) > 1 and re.search(rf"\b{re.escape(v.lower())}\b", q)), None)
+                if hit:
+                    filters.append({"column": c, "op": "=", "value": hit})
+        fn = self._fn_for(best)
+        try:
+            spec = self.validate({"table": tname, "filters": filters, "group_by": [{"column": dcol, "bucket": "month"}],
+                                  "metrics": [{"fn": fn, "column": best, "as": f"{fn} {best}"}], "limit": 36}, tables)
+        except ValidationError:
+            return None
+        return {"spec": spec, "measure": best, "date": dcol, "fn": fn}
+
+    def _variance(self, tables, spec, diag):
+        import pandas as pd
+        summary, df = tables[spec["table"]]
+        if diag["fn"] != "sum":
+            return []
+        mask = pd.Series(True, index=df.index)
+        for f in spec["filters"]:
+            mask &= self._filter(df, summary["roles"], f).fillna(False)
+        return synth.variance_drivers(df, summary["roles"], diag["measure"], diag["date"], mask, skip={f["column"] for f in spec["filters"]})
 
     @staticmethod
     def _suggestions(tables, spec=None):

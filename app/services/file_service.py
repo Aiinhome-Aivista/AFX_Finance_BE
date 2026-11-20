@@ -166,6 +166,29 @@ def process_file(db, cfg, file_id):
         files.set_status(file_id, "processed", None, parsed["metadata"], parsed["preview"])
         files.update_job(job["id"], "succeeded", None, {"mapping": mapping})
 
+        # Documents (PDF / Word / text): store their passages so the analyst chat can retrieve them. Never blocks the upload.
+        if f["ext"] in ("pdf", "docx", "txt"):
+            try:
+                from .vector_store_service import DocumentSearch
+                DocumentSearch(db, cfg).index_file(file_id, f["workflow_id"], f["ext"], path)
+            except Exception as ie:
+                log.warning("document indexing skipped for file %s: %s", file_id, ie)
+
+        # Tabular data: build (in the background) the verified knowledge graph of the model's data. Never blocks the upload.
+        if f["ext"] in ("csv", "xlsx"):
+            try:
+                from ..llm import build_provider
+                from .analyst_chat_service import AnalystChatService
+                from .kgraph_builder_service import KGraphBuilderService
+                wf_row, llm_ = dict(wf.row), build_provider(cfg)
+                chat = AnalystChatService(db, cfg, llm_)
+                files_, _ = chat.dash._files(wf_row)
+                fp = chat.dash._fingerprint(wf_row, files_)
+                KGraphBuilderService(db, cfg, llm_).build_in_background(
+                    f["workflow_id"], lambda bg_db: AnalystChatService(bg_db, cfg, llm_)._tables(dict(wf_row)), fp)
+            except Exception as ke:
+                log.warning("knowledge graph build skipped for file %s: %s", file_id, ke)
+
         # Multi-Track Intelligence Pipeline: Trigger JSON DB Store, Guardrails, KPI Selection & RAG
         if f["ext"] in ("csv", "tsv", "xlsx", "xls"):
             try:

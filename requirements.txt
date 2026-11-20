@@ -37,3 +37,4 @@ tzdata==2026.5
 urllib3==2.8.0
 Werkzeug==3.1.9
 python-arango>=8.1.0
+chromadb==1.5.9
