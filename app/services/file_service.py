@@ -93,6 +93,17 @@ class FileService:
             process_file(self.db, self.cfg, fid)
         else:
             _POOL.submit(_process_in_thread, self.cfg, fid)
+
+        if stage == "telemetry" and ext == "csv":
+            try:
+                from app.services.workspace_db_service import WorkspaceDbService
+                ws_svc = WorkspaceDbService(self.db, self.cfg)
+                m_name = wf.get("name") or ""
+                ingest_res = ws_svc.ingest_csv(user_id, wf["id"], m_name, path, original)
+                log.info("CSV telemetry ingested into workspace database: %s", ingest_res)
+            except Exception as ex:
+                log.warning("Workspace DB ingestion error for file %s: %s", original, ex)
+
         return self.detail(user_id, fid)
 
     # ------------------------------------------------------------------ read / delete
@@ -168,7 +179,10 @@ def process_file(db, cfg, file_id):
         # map against the exact finalised graph version this file was uploaded for
         wf = WorkflowRow(db, f["workflow_id"])
         gs = GraphService(db)
-        state = gs.state_of(f["user_id"], wf.row, wf.domain, f["graph_version_number"])
+        try:
+            state = gs.state_of(f["user_id"], wf.row, wf.domain, f.get("graph_version_number") or 0)
+        except Exception:
+            state = gs.state_of(f["user_id"], wf.row, wf.domain, 0)
         refs = ReferenceRepository(db).nodes_by_keys([k for k, n in state.nodes.items() if n["origin"] == "reference"])
         mapping = map_terms(state, parsed["terms"], parsed["text"], {r["node_key"]: r["canon_attributes"] for r in refs})
         files.set_status(file_id, "processed", None, parsed["metadata"], parsed["preview"])
@@ -178,8 +192,11 @@ def process_file(db, cfg, file_id):
         if f["ext"] in ("csv", "tsv", "xlsx", "xls"):
             try:
                 from .telemetry_pipeline_service import TelemetryIngestionService
-                from ..llm.base import llm_from_config
-                pipeline_llm = llm_from_config(cfg)
+                from ..llm.providers import build_provider
+                try:
+                    pipeline_llm = build_provider(cfg)
+                except Exception:
+                    pipeline_llm = None
                 pipeline_svc = TelemetryIngestionService(db, cfg, pipeline_llm)
                 slug = wf.domain.get("slug") or "finance"
                 pipeline_svc.process_telemetry_upload(

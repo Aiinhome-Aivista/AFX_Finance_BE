@@ -118,6 +118,10 @@ def create_app() -> Flask:
     def api_sync_custom_models():
         return domain_controller.sync_custom_models()
 
+    @app.route("/api/domains/<slug>/workspace-db-status", methods=["GET"])
+    def api_workspace_db_status(slug):
+        return domain_controller.workspace_db_status(slug)
+
     @app.route("/api/domains", methods=["GET"])
     def api_list_domains():
         return domain_controller.list_domains()

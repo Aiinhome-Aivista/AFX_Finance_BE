@@ -389,8 +389,16 @@ def save_custom_model():
     # 4. If none, create a brand new workflow specifically for this workspace
     if not wf_id:
         wf_id = repo.create(user_id, dom_id, name=name)
+        db.execute(
+            "UPDATE workflows SET finalized_version_number = 2, finalized_at = NOW(), updated_at = NOW() WHERE id = %s",
+            (wf_id,)
+        )
     else:
-        db.execute("UPDATE workflows SET name = %s, updated_at = NOW() WHERE id = %s", (name, wf_id))
+        db.execute(
+            "UPDATE workflows SET name = %s, finalized_version_number = COALESCE(finalized_version_number, 2), "
+            "finalized_at = COALESCE(finalized_at, NOW()), updated_at = NOW() WHERE id = %s",
+            (name, wf_id)
+        )
 
     db.execute(
         "INSERT INTO custom_finance_models (user_id, workflow_id, name, slug, domain_name, status, nodes_json, edges_json) "
@@ -400,13 +408,46 @@ def save_custom_model():
         "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
         (user_id, wf_id, name, slug, domain_name, nodes_json, edges_json)
     )
+
+    # Initialize dedicated blank database for this workspace
+    from app.services.workspace_db_service import WorkspaceDbService
+    ws_db_svc = WorkspaceDbService(db, current_app.config["APP_CONFIG"])
+    ws_db_res = ws_db_svc.create_workspace_db(user_id, wf_id, name)
+
     return jsonify({
         "ok": True,
         "name": name,
         "workflow_id": wf_id,
         "status": "SAVED",
+        "db_name": ws_db_res.get("db_name"),
+        "db_status": "READY",
         "savedAt": now_dt.isoformat(),
         "updatedAt": now_dt.isoformat(),
+    })
+
+
+@auth_required
+def workspace_db_status(slug: str):
+    domain, wf = domain_wf(slug)
+    if not wf:
+        return jsonify({"ready": False, "status": "LOCKED", "db_name": None})
+    model_name = request.headers.get("X-Model-Name") or request.args.get("model") or wf.get("name") or ""
+    if not model_name:
+        cm = get_db().one("SELECT name FROM custom_finance_models WHERE workflow_id = %s LIMIT 1", (wf["id"],))
+        if cm and cm.get("name"):
+            model_name = cm["name"]
+
+    from app.services.workspace_db_service import WorkspaceDbService
+    ws_svc = WorkspaceDbService(get_db(), current_app.config["APP_CONFIG"])
+    is_ready = ws_svc.is_workspace_db_ready(wf["id"], model_name)
+    tables = ws_svc.list_tables(wf["id"], model_name) if is_ready else []
+    return jsonify({
+        "ready": is_ready,
+        "status": "READY" if is_ready else "LOCKED",
+        "db_name": ws_svc.get_db_name(wf["id"], model_name) if is_ready else None,
+        "workflow_id": wf["id"],
+        "workspace_name": model_name,
+        "tables": tables,
     })
 
 

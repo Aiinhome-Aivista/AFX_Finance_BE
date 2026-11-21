@@ -77,6 +77,8 @@ class AnalystDashboardService:
         ver = wf.get("finalized_version_number") or max((int(r["graph_version_number"]) for r in rows), default=0)
         wf["data_version"] = ver
         use = [r for r in rows if int(r["graph_version_number"]) == int(ver)]
+        if not use and rows:
+            use = rows
         return use, len(rows) - len(use)
 
     def _path(self, f):

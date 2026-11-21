@@ -65,7 +65,10 @@ class GraphService:
             return self._baseline(domain, wf)
         v = self.graphs.version(user_id, wf["id"], number)
         if not v:
-            raise NotFoundError(f"Version KG{number} does not exist.")
+            latest = self.graphs.latest(user_id, wf["id"])
+            if latest:
+                return GraphState.from_lists(self.graphs.nodes(latest["id"]), self.graphs.edges(latest["id"]))
+            return self._baseline(domain, wf)
         return GraphState.from_lists(self.graphs.nodes(v["id"]), self.graphs.edges(v["id"]))
 
     def version_meta(self, v):
