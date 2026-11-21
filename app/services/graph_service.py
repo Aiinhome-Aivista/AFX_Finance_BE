@@ -177,14 +177,14 @@ class GraphService:
 
     def finalize(self, user_id, wf, domain, confirm, acknowledge_warnings):
         if wf["finalized_version_number"]:
-            raise ConflictError("The ontology is already finalised.")
+            raise ConflictError("The ontology is already finalized.")
         if not confirm:
             raise ValidationError("Finalisation needs your explicit confirmation.")
         prev = self.finalization_preview(user_id, wf, domain)
         if prev["validation"]["errors"]:
             raise ConflictError("Fix the validation errors before finalising.", details=prev["validation"]["errors"])
         if prev["validation"]["warnings"] and not acknowledge_warnings:
-            raise ConflictError("There are validation warnings. Acknowledge them to finalise anyway.", code="warnings_unacknowledged",
+            raise ConflictError("There are validation warnings. Acknowledge them to finalize anyway.", code="warnings_unacknowledged",
                                 details=prev["validation"]["warnings"])
         number = prev["version"]["number"]
         with self.db.transaction():
@@ -195,7 +195,7 @@ class GraphService:
 
     def reopen(self, user_id, wf, domain):
         if not wf["finalized_version_number"]:
-            raise ConflictError("The ontology is not finalised.")
+            raise ConflictError("The ontology is not finalized.")
 
         with self.db.transaction():
             # 1. Clean up stale telemetry graph versions (nodes and edges cascade delete)

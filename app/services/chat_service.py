@@ -1027,7 +1027,7 @@ class ChatService:
             else:
                 self.convs.add_message(conv["id"], "assistant",
                                        "Your answers match the reference model closely, so I have no graph changes to propose. "
-                                       "You can continue answering, focus on another entity, or finalise when you're ready.", "system")
+                                       "You can continue answering, focus on another entity, or finalize when you're ready.", "system")
         snap = self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
         snap["proposal"] = proposal
         snap["discarded_changes"] = len(rejected)
@@ -1229,7 +1229,7 @@ class ChatService:
 #         """Jump the interview to a chosen entity: its questions go to the front of the queue."""
 #         wf = self._wf(user_id, domain)
 #         if wf["finalized_version_number"]:
-#             raise ConflictError("The ontology is finalised; re-open it to continue the interview.")
+#             raise ConflictError("The ontology is finalized; re-open it to continue the interview.")
 #         conv = self.convs.get(user_id, wf["id"])
 #         if not conv:
 #             raise ConflictError("Start the conversation first.")
@@ -1256,7 +1256,7 @@ class ChatService:
 #     def answer(self, user_id, domain, text):
 #         wf = self._wf(user_id, domain)
 #         if wf["finalized_version_number"]:
-#             raise ConflictError("The ontology is finalised; re-open it to continue the interview.")
+#             raise ConflictError("The ontology is finalized; re-open it to continue the interview.")
 #         text = clean_text(text, MAX_ANSWER_CHARS)
 #         if not text:
 #             raise ValidationError("Please type an answer (or say “skip”).")
@@ -1392,7 +1392,7 @@ class ChatService:
 #     def propose(self, user_id, domain):
 #         wf = self._wf(user_id, domain)
 #         if wf["finalized_version_number"]:
-#             raise ConflictError("The ontology is finalised; re-open it to propose further changes.")
+#             raise ConflictError("The ontology is finalized; re-open it to propose further changes.")
 #         conv = self.convs.get(user_id, wf["id"])
 #         if not conv:
 #             raise ConflictError("Start the conversation first.")
@@ -1418,7 +1418,7 @@ class ChatService:
 #             else:
 #                 self.convs.add_message(conv["id"], "assistant",
 #                                        "Your answers match the reference model closely, so I have no graph changes to propose. "
-#                                        "You can continue answering, focus on another entity, or finalise when you're ready.", "system")
+#                                        "You can continue answering, focus on another entity, or finalize when you're ready.", "system")
 #         snap = self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id)
 #         snap["proposal"] = proposal
 #         snap["discarded_changes"] = len(rejected)

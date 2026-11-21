@@ -73,9 +73,9 @@ class ProposalService:
             return {"proposal": self.detail(user_id, wf, proposal_id), "version": None}
 
         if p["source"] == "chat" and wf["finalized_version_number"]:
-            raise ConflictError("The ontology is finalised. Re-open it to approve further customisation.")
+            raise ConflictError("The ontology is finalized. Re-open it to approve further customisation.")
         if p["source"] == "telemetry" and not wf["finalized_version_number"]:
-            raise ConflictError("Telemetry changes can only be approved after the ontology is finalised.")
+            raise ConflictError("Telemetry changes can only be approved after the ontology is finalized.")
         latest = self.graphs.graphs.latest(user_id, wf["id"])
         current = latest["version_number"] if latest else 0
         if current != p["base_version_number"]:

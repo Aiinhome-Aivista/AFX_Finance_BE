@@ -1,4 +1,4 @@
-"""Upload, validate, store and process telemetry files. Gate: only after the ontology is finalised."""
+"""Upload, validate, store and process telemetry files. Gate: only after the ontology is finalized."""
 import hashlib
 import logging
 import os
@@ -176,7 +176,7 @@ def process_file(db, cfg, file_id):
         )
     try:
         parsed = PARSERS[f["ext"]](path)
-        # map against the exact finalised graph version this file was uploaded for
+        # map against the exact finalized graph version this file was uploaded for
         wf = WorkflowRow(db, f["workflow_id"])
         gs = GraphService(db)
         try:

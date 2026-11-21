@@ -1,4 +1,4 @@
-"""Map extracted telemetry (columns / SQL identifiers / document text) onto the FINALISED client graph, and turn the
+"""Map extracted telemetry (columns / SQL identifiers / document text) onto the FINALIZED client graph, and turn the
 mapping into a change proposal that — once approved — becomes the next graph version (KG2 in the standard path)."""
 import re
 
@@ -264,7 +264,7 @@ class TelemetryService:
                                 "rationale": "The entity name appears in the document text."})
         if not raw:
             if unmapped:
-                raise ValidationError("None of the uploaded files could be matched to entities in your finalised graph, so there is nothing to add. "
+                raise ValidationError("None of the uploaded files could be matched to entities in your finalized graph, so there is nothing to add. "
                                       f"Unmatched files: {', '.join(unmapped[:5])}.")
             raise ConflictError("Every processed file is already represented in your graph.")
         title = f"Telemetry mapping from {len(used)} file(s)"

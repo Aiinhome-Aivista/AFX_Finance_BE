@@ -8,7 +8,7 @@ STEP_TITLES = {
     2: ("Domain", "Pick a specific Finance domain"),
     3: ("Reference graph", "Explore the domain template and choose the blocks that matter"),
     4: ("Domain nuances", "Chatbot collects your specifics and business experience"),
-    5: ("Finalise ontology", "Review, compare and finalise your customised graph"),
+    5: ("Finalize ontology", "Review, compare and finalize your customised graph"),
     6: ("Business telemetry", "Upload CSV / XLSX / PDF / TXT / DOCX / SQL and generate the data-mapped graph"),
 }
 APPS = {
@@ -184,7 +184,7 @@ class WorkflowService:
     def confirm_blocks(self, user_id, domain, blocks):
         wf = self.get_wf(user_id, domain)
         if wf["finalized_version_number"]:
-            raise ConflictError("The ontology is already finalised. Re-open it to change the focus blocks.")
+            raise ConflictError("The ontology is already finalized. Re-open it to change the focus blocks.")
         self.repo.set_blocks(wf["id"], blocks)
         steps = {s["step_no"]: s["status"] for s in self.repo.steps(wf["id"])}
         if steps[3] != "completed":
