@@ -334,7 +334,7 @@ def save_custom_model():
     if not name:
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
-    domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+    domain_name = data.get("domainName")
     nodes_json = json.dumps(data.get("nodes")) if data.get("nodes") is not None else None
     edges_json = json.dumps(data.get("edges")) if data.get("edges") is not None else None
     now_dt = datetime.now()
@@ -458,7 +458,7 @@ def publish_custom_model():
     if not name:
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
-    domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
+    domain_name = data.get("domainName")
 
     db = get_db()
     user_id = g.user_id
