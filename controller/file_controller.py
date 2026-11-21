@@ -15,18 +15,31 @@ def _svc():
 @auth_required
 @role_required("data_architect")
 def list_files(slug: str):
-    domain, _ = domain_wf(slug)
-    return jsonify({"files": _svc().list(g.user_id, domain)})
+    is_fresh = (
+        request.args.get("fresh") == "1"
+        or request.headers.get("X-Fresh") == "1"
+        or request.headers.get("fresh") == "1"
+    )
+    if is_fresh:
+        return jsonify({"files": []})
+
+    domain, wf = domain_wf(slug)
+    if not wf:
+        return jsonify({"files": []})
+
+    stage = request.args.get("stage")
+    return jsonify({"files": _svc().list(g.user_id, domain, stage=stage, wf=wf)})
 
 
 @auth_required
 @role_required("data_architect")
 def upload(slug: str):
-    domain, _ = domain_wf(slug)
+    domain, wf = domain_wf(slug)
     if "file" not in request.files:
         raise ValidationError("Attach the file in a multipart field named 'file'.")
-    out = _svc().upload(g.user_id, domain, request.files["file"])
-    audit("file.upload", "file", out["id"], {"name": out["name"], "size": out["size_bytes"]})
+    stage = request.form.get("stage") or request.args.get("stage") or "business_data"
+    out = _svc().upload(g.user_id, domain, request.files["file"], stage=stage, wf=wf)
+    audit("file.upload", "file", out["id"], {"name": out["name"], "size": out["size_bytes"], "stage": stage})
     return jsonify(out), 201
 
 

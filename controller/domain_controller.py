@@ -348,27 +348,34 @@ def save_custom_model():
 
     repo = WorkflowRepository(db)
 
-    # 1. Did client pass a specific workflow id?
-    req_wf = data.get("wf") or request.headers.get("X-Workflow-Id") or request.args.get("wf")
+    # 1. Check if the user already has a saved model with this name (Overwrite mode)
+    existing_model = db.one(
+        "SELECT id, workflow_id FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
+        (user_id, name, name.replace(" ", "_"), name.replace("_", " "))
+    )
     wf_id = None
-    if req_wf:
-        try:
-            cand = repo.get_by_id(int(req_wf))
-            if cand and int(cand["user_id"]) == int(user_id) and int(cand["domain_id"]) == int(dom_id):
-                wf_id = cand["id"]
-        except (TypeError, ValueError):
-            pass
+    if existing_model:
+        wf_id = existing_model.get("workflow_id")
 
-    # 2. Check if a workflow exists with this model name
+    # 2. If saving a new model name (new workspace), ensure it never shares a workflow with another workspace
     if not wf_id:
-        wf_row = db.one(
-            "SELECT id FROM workflows WHERE user_id = %s AND domain_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
-            (user_id, dom_id, name, name.replace(" ", "_"), name.replace("_", " "))
-        )
-        if wf_row:
-            wf_id = wf_row["id"]
+        req_wf = data.get("wf") or request.headers.get("X-Workflow-Id") or request.args.get("wf")
+        if req_wf:
+            try:
+                cand_wf_id = int(req_wf)
+                # Check if this workflow ID is ALREADY bound to another custom model
+                in_use = db.one(
+                    "SELECT id, name FROM custom_finance_models WHERE user_id = %s AND workflow_id = %s AND name != %s LIMIT 1",
+                    (user_id, cand_wf_id, name)
+                )
+                if not in_use:
+                    cand = repo.get_by_id(cand_wf_id)
+                    if cand and int(cand["user_id"]) == int(user_id) and int(cand["domain_id"]) == int(dom_id):
+                        wf_id = cand["id"]
+            except (TypeError, ValueError):
+                pass
 
-    # 3. Check if there is an un-named draft workflow for this user and domain
+    # 3. Check if there is an un-named draft workflow for this user and domain not claimed by any model
     if not wf_id:
         draft_row = db.one(
             "SELECT id FROM workflows WHERE user_id = %s AND domain_id = %s AND (name IS NULL OR name = '') "
@@ -379,7 +386,7 @@ def save_custom_model():
         if draft_row:
             wf_id = draft_row["id"]
 
-    # 4. If none, create a new workflow
+    # 4. If none, create a brand new workflow specifically for this workspace
     if not wf_id:
         wf_id = repo.create(user_id, dom_id, name=name)
     else:

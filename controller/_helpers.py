@@ -48,6 +48,16 @@ def resolve_workspace_wf(db, user_id, domain, create_if_missing=False):
         name_clean = str(model_name).strip()
         name_u = name_clean.replace(" ", "_")
         name_s = name_clean.replace("_", " ")
+
+        cm = db.one(
+            "SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s) AND workflow_id IS NOT NULL LIMIT 1",
+            (user_id, name_clean, name_u, name_s)
+        )
+        if cm and cm.get("workflow_id"):
+            wf = repo.get_by_id(cm["workflow_id"])
+            if wf and int(wf["domain_id"]) == int(domain["id"]):
+                return wf
+
         row = db.one(
             "SELECT * FROM workflows WHERE user_id = %s AND domain_id = %s AND (name = %s OR name = %s OR name = %s) ORDER BY updated_at DESC LIMIT 1",
             (user_id, domain["id"], name_clean, name_u, name_s)

@@ -23,7 +23,7 @@ _POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="telemetry")
 
 def _public(f, job=None):
     out = {"id": f["id"], "name": f["original_name"], "ext": f["ext"], "size_bytes": f["size_bytes"], "status": f["status"], "error": f["error"],
-           "graph_version": f"KG{f['graph_version_number']}", "metadata": f["metadata"], "created_at": f["created_at"], "processed_at": f["processed_at"]}
+           "graph_version": f"KG{f['graph_version_number']}", "metadata": f["metadata"], "stage": f.get("stage", "business_data"), "created_at": f["created_at"], "processed_at": f["processed_at"]}
     if job:
         out["job"] = {"status": job["status"], "started_at": job["started_at"], "finished_at": job["finished_at"], "error": job["error"]}
     return out
@@ -41,9 +41,9 @@ class FileService:
         return d
 
     # ------------------------------------------------------------------ upload
-    def upload(self, user_id, domain, storage):
+    def upload(self, user_id, domain, storage, stage="business_data", wf=None):
         from flask import g
-        g_wf = getattr(g, "_active_wf", None)
+        g_wf = wf or getattr(g, "_active_wf", None)
         wf = g_wf or self.wfs.get_wf(user_id, domain, required=False)
         if not wf:
             self.wfs.start(user_id, domain)
@@ -52,6 +52,8 @@ class FileService:
             raise ValidationError("No file was provided.")
         original = secure_filename(storage.filename) or "upload"
         ext = original.rsplit(".", 1)[-1].lower() if "." in original else ""
+        if stage == "telemetry" and ext != "csv":
+            raise ValidationError("Only .csv files are supported for live telemetry ingestion.")
         if ext not in ALLOWED_EXT:
             raise ValidationError(f"Unsupported file type '.{ext}'. Allowed: {', '.join(sorted(e.upper() for e in ALLOWED_EXT))}.")
         stored = f"{uuid.uuid4().hex}.{ext}"
@@ -80,7 +82,7 @@ class FileService:
             raise
         latest_v = self.db.one("SELECT MAX(version_number) as m FROM user_graph_versions WHERE workflow_id=%s", (wf["id"],))
         ver_num = latest_v["m"] if latest_v and latest_v.get("m") else (wf.get("finalized_version_number") or 0)
-        fid = self.files.create(user_id, wf["id"], domain["id"], ver_num, original, stored, ext, size, h.hexdigest())
+        fid = self.files.create(user_id, wf["id"], domain["id"], ver_num, original, stored, ext, size, h.hexdigest(), stage=stage)
         try:
             if path.exists():
                 self.files.save_content(fid, path.read_bytes())
@@ -94,11 +96,13 @@ class FileService:
         return self.detail(user_id, fid)
 
     # ------------------------------------------------------------------ read / delete
-    def list(self, user_id, domain):
+    def list(self, user_id, domain, stage=None, wf=None):
         from flask import g
-        g_wf = getattr(g, "_active_wf", None)
+        g_wf = wf or getattr(g, "_active_wf", None)
         wf = g_wf or self.wfs.get_wf(user_id, domain)
-        return [_public(f, self.files.job_for_file(f["id"])) for f in self.files.list(user_id, wf["id"])]
+        if not wf:
+            return []
+        return [_public(f, self.files.job_for_file(f["id"])) for f in self.files.list(user_id, wf["id"], stage=stage)]
 
     def detail(self, user_id, file_id):
         f = self.files.get(user_id, file_id)

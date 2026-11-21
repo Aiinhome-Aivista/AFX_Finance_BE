@@ -12,10 +12,10 @@ class FileRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, user_id, workflow_id, domain_id, version_number, original, stored, ext, size, sha):
+    def create(self, user_id, workflow_id, domain_id, version_number, original, stored, ext, size, sha, stage="business_data"):
         return self.db.insert(
-            "INSERT INTO uploaded_files(user_id,workflow_id,domain_id,graph_version_number,original_name,stored_name,ext,size_bytes,sha256) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", (user_id, workflow_id, domain_id, version_number, original, stored, ext, size, sha))
+            "INSERT INTO uploaded_files(user_id,workflow_id,domain_id,graph_version_number,original_name,stored_name,ext,size_bytes,sha256,stage) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", (user_id, workflow_id, domain_id, version_number, original, stored, ext, size, sha, stage))
 
     def get(self, user_id, file_id):
         return _f(self.db.one("SELECT * FROM uploaded_files WHERE id=%s AND user_id=%s", (file_id, user_id)))
@@ -23,8 +23,26 @@ class FileRepository:
     def get_system(self, file_id):  # background worker only (job already bound to an owner)
         return _f(self.db.one("SELECT * FROM uploaded_files WHERE id=%s", (file_id,)))
 
-    def list(self, user_id, workflow_id):
-        return [_f(r) for r in self.db.query("SELECT * FROM uploaded_files WHERE user_id=%s AND workflow_id=%s ORDER BY id DESC", (user_id, workflow_id))]
+    def list(self, user_id, workflow_id, stage=None):
+        if stage == "business_data":
+            return [_f(r) for r in self.db.query(
+                "SELECT * FROM uploaded_files WHERE user_id=%s AND workflow_id=%s AND (stage='business_data' OR stage='evaluation' OR stage IS NULL) ORDER BY id DESC",
+                (user_id, workflow_id)
+            )]
+        elif stage == "telemetry":
+            return [_f(r) for r in self.db.query(
+                "SELECT * FROM uploaded_files WHERE user_id=%s AND workflow_id=%s AND stage='telemetry' ORDER BY id DESC",
+                (user_id, workflow_id)
+            )]
+        elif stage:
+            return [_f(r) for r in self.db.query(
+                "SELECT * FROM uploaded_files WHERE user_id=%s AND workflow_id=%s AND stage=%s ORDER BY id DESC",
+                (user_id, workflow_id, stage)
+            )]
+        return [_f(r) for r in self.db.query(
+            "SELECT * FROM uploaded_files WHERE user_id=%s AND workflow_id=%s ORDER BY id DESC",
+            (user_id, workflow_id)
+        )]
 
     def delete(self, user_id, file_id):
         return self.db.execute("DELETE FROM uploaded_files WHERE id=%s AND user_id=%s", (file_id, user_id))
