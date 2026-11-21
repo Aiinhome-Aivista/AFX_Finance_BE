@@ -7,7 +7,7 @@ from app.security import auth_optional, auth_required, role_required
 from app.repositories.workflows import WorkflowRepository
 from app.services.reference_service import ReferenceService
 from app.services.workflow_service import WorkflowService
-from ._helpers import audit, json_body, resolve_workspace_wf
+from ._helpers import audit, domain_wf, json_body, resolve_workspace_wf
 
 
 def _flag(name, default=True):
@@ -431,23 +431,71 @@ def workspace_db_status(slug: str):
     domain, wf = domain_wf(slug)
     if not wf:
         return jsonify({"ready": False, "status": "LOCKED", "db_name": None})
+
+    is_fresh = request.args.get("fresh") == "1" or request.headers.get("X-Fresh") == "1"
     model_name = request.headers.get("X-Model-Name") or request.args.get("model") or wf.get("name") or ""
-    if not model_name:
-        cm = get_db().one("SELECT name FROM custom_finance_models WHERE workflow_id = %s LIMIT 1", (wf["id"],))
-        if cm and cm.get("name"):
-            model_name = cm["name"]
+
+    # If it is an unfinalized/unnamed draft or fresh session, it MUST be LOCKED until finalized & saved
+    if is_fresh or (not model_name and not wf.get("name")):
+        return jsonify({
+            "ready": False,
+            "status": "LOCKED",
+            "db_name": None,
+            "workflow_id": wf["id"],
+            "workspace_name": None,
+            "tables": [],
+        })
 
     from app.services.workspace_db_service import WorkspaceDbService
     ws_svc = WorkspaceDbService(get_db(), current_app.config["APP_CONFIG"])
-    is_ready = ws_svc.is_workspace_db_ready(wf["id"], model_name)
-    tables = ws_svc.list_tables(wf["id"], model_name) if is_ready else []
+
+    # Check if a custom model exists for THIS workflow or THIS model name
+    cm = get_db().one(
+        "SELECT * FROM custom_finance_models WHERE workflow_id = %s OR (user_id = %s AND name = %s AND slug = %s) LIMIT 1",
+        (wf["id"], g.user_id, model_name, domain["slug"])
+    )
+
+    if cm:
+        eff_name = cm["name"]
+        eff_wfid = cm.get("workflow_id") or wf["id"]
+        is_ready = ws_svc.is_workspace_db_ready(eff_wfid, eff_name)
+        if not is_ready:
+            ws_svc.create_workspace_db(g.user_id, eff_wfid, eff_name)
+            is_ready = True
+        tables = ws_svc.list_tables(eff_wfid, eff_name)
+        return jsonify({
+            "ready": True,
+            "status": "READY",
+            "db_name": ws_svc.get_db_name(eff_wfid, eff_name),
+            "workflow_id": eff_wfid,
+            "workspace_name": eff_name,
+            "tables": tables,
+        })
+
+    # If workflow itself is named and finalized
+    if wf.get("name") and (wf.get("finalized_version_number") or wf.get("status") in ("SAVED", "PUBLISHED")):
+        is_ready = ws_svc.is_workspace_db_ready(wf["id"], wf["name"])
+        if not is_ready:
+            ws_svc.create_workspace_db(g.user_id, wf["id"], wf["name"])
+            is_ready = True
+        tables = ws_svc.list_tables(wf["id"], wf["name"])
+        return jsonify({
+            "ready": True,
+            "status": "READY",
+            "db_name": ws_svc.get_db_name(wf["id"], wf["name"]),
+            "workflow_id": wf["id"],
+            "workspace_name": wf["name"],
+            "tables": tables,
+        })
+
+    # Otherwise it is a draft that has not been saved yet -> LOCKED
     return jsonify({
-        "ready": is_ready,
-        "status": "READY" if is_ready else "LOCKED",
-        "db_name": ws_svc.get_db_name(wf["id"], model_name) if is_ready else None,
+        "ready": False,
+        "status": "LOCKED",
+        "db_name": None,
         "workflow_id": wf["id"],
-        "workspace_name": model_name,
-        "tables": tables,
+        "workspace_name": None,
+        "tables": [],
     })
 
 
