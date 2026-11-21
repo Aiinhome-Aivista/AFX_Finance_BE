@@ -32,7 +32,13 @@ class WorkflowRepository:
 
     def get(self, user_id, domain_id):
         domain_id = self._resolve_domain_id(domain_id)
-        return self._hydrate(self.db.one("SELECT * FROM workflows WHERE user_id=%s AND domain_id=%s", (user_id, domain_id)))
+        return self._hydrate(self.db.one(
+            "SELECT * FROM workflows WHERE user_id=%s AND domain_id=%s "
+            "AND (name IS NULL OR name = '') AND finalized_version_number IS NULL "
+            "AND id NOT IN (SELECT workflow_id FROM custom_finance_models WHERE workflow_id IS NOT NULL) "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (user_id, domain_id)
+        ))
 
     def list_for_user(self, user_id):
         return [self._hydrate(r) for r in self.db.query(
@@ -67,9 +73,12 @@ class WorkflowRepository:
             (domain_id,),
         ))
 
-    def create(self, user_id, domain_id):
+    def create(self, user_id, domain_id, name=None):
         domain_id = self._resolve_domain_id(domain_id)
-        wid = self.db.insert("INSERT INTO workflows(user_id,domain_id,current_step) VALUES (%s,%s,3)", (user_id, domain_id))
+        if name:
+            wid = self.db.insert("INSERT INTO workflows(user_id,domain_id,current_step,name) VALUES (%s,%s,3,%s)", (user_id, domain_id, name))
+        else:
+            wid = self.db.insert("INSERT INTO workflows(user_id,domain_id,current_step) VALUES (%s,%s,3)", (user_id, domain_id))
         for step in range(1, 7):
             status = "completed" if step <= 2 else ("active" if step == 3 else "locked")
             self.db.execute("INSERT INTO workflow_steps(workflow_id,step_no,status,completed_at) VALUES (%s,%s,%s,%s)",

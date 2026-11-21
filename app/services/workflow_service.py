@@ -245,15 +245,25 @@ class WorkflowService:
         return out
 
     def reset_domain(self, user_id, domain):
-        """Reset a domain workflow completely so everything starts fresh."""
-        wf = self.repo.get(user_id, domain["id"])
+        """Reset only the default un-named draft workflow for this domain, preserving named/saved models."""
+        wf = self.db.one(
+            "SELECT id FROM workflows WHERE user_id=%s AND domain_id=%s "
+            "AND (name IS NULL OR name = '') AND finalized_version_number IS NULL "
+            "AND id NOT IN (SELECT workflow_id FROM custom_finance_models WHERE workflow_id IS NOT NULL)",
+            (user_id, domain["id"])
+        )
         if wf:
             self.db.execute("DELETE FROM workflows WHERE id=%s", (wf["id"],))
         return self.start(user_id, domain)
 
     def reset_all(self, user_id):
-        """Reset all workflows for user so any selected domain starts completely fresh."""
-        wfs = self.repo.list_for_user(user_id)
-        for w in wfs:
-            self.db.execute("DELETE FROM workflows WHERE id=%s", (w["id"],))
-        return {"status": "ok", "message": "All domain workflows reset to fresh baseline."}
+        """Reset only unnamed draft workflows for user, never touch named/saved models."""
+        rows = self.db.query(
+            "SELECT id FROM workflows WHERE user_id=%s "
+            "AND (name IS NULL OR name = '') AND finalized_version_number IS NULL "
+            "AND id NOT IN (SELECT workflow_id FROM custom_finance_models WHERE workflow_id IS NOT NULL)",
+            (user_id,)
+        )
+        for r in rows:
+            self.db.execute("DELETE FROM workflows WHERE id=%s", (r["id"],))
+        return {"status": "ok", "message": "Draft workflows reset to fresh baseline."}

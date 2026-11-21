@@ -4,9 +4,10 @@ from flask import current_app, g, jsonify, request
 
 from app.db import get_db
 from app.security import auth_optional, auth_required, role_required
+from app.repositories.workflows import WorkflowRepository
 from app.services.reference_service import ReferenceService
 from app.services.workflow_service import WorkflowService
-from ._helpers import audit, json_body
+from ._helpers import audit, json_body, resolve_workspace_wf
 
 
 def _flag(name, default=True):
@@ -106,28 +107,36 @@ def domain_graph(slug: str):
     """Domain graph: returns latest customized working graph if available, else KG0 baseline."""
     db = get_db()
     ref = ReferenceService(db)
-    d = ref.domain(slug)
-    wf = WorkflowService(db).get_wf(g.user_id, d, required=False)
+    clean_slug = str(slug).replace("_", "-").lower() if slug else slug
+    d = ref.domain(clean_slug)
+
+    is_fresh = (
+        request.args.get("fresh") == "1"
+        or request.headers.get("X-Fresh") == "1"
+        or request.headers.get("fresh") == "1"
+    )
 
     res = None
-    if wf:
-        from app.services.graph_service import GraphService
-        gs = GraphService(db)
-        try:
-            latest = gs.graphs.latest(g.user_id, wf["id"])
-            if latest:
-                res = gs.graph(g.user_id, wf, d, latest["version_number"])
-        except Exception:
-            res = None
+    if not is_fresh:
+        wf = resolve_workspace_wf(db, g.user_id, d, create_if_missing=False)
+        if wf:
+            from app.services.graph_service import GraphService
+            gs = GraphService(db)
+            try:
+                latest = gs.graphs.latest(g.user_id, wf["id"])
+                if latest:
+                    res = gs.graph(g.user_id, wf, d, latest["version_number"])
+            except Exception:
+                res = None
 
     if not res:
-        res = ref.domain_graph(slug, neighbours=_flag("neighbours", True))
+        res = ref.domain_graph(clean_slug, neighbours=_flag("neighbours", True))
 
     try:
         from app.services.html_graph_service import HTMLGraphService
         graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
         html_url = HTMLGraphService.save_html(
-            slug,
+            clean_slug,
             res.get("domain", {}),
             res.get("nodes", []),
             res.get("edges", []),
@@ -204,8 +213,9 @@ def _repair_synced_model_dates(db):
 def list_custom_models():
     db = get_db()
     user_id = g.user_id
+    repo = WorkflowRepository(db)
     pub_rows = db.query(
-        "SELECT id, user_id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
+        "SELECT id, user_id, workflow_id, name, slug, domain_name, status, nodes_json, edges_json, published_at, created_at, updated_at "
         "FROM custom_finance_models WHERE status = 'PUBLISHED' OR published_at IS NOT NULL "
         "ORDER BY COALESCE(published_at, updated_at) DESC"
     )
@@ -225,17 +235,24 @@ def list_custom_models():
                 edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
         except Exception:
             pass
-        # The owner's workflow for this domain holds the uploaded data the Analyst dashboard reads.
         clean_slug = str(r["slug"] or "").replace("_", "-").lower()
-        wf_row = db.one(
-            "SELECT w.id FROM workflows w JOIN domains d ON d.id = w.domain_id "
-            "WHERE (w.name = %s OR (w.user_id = %s AND d.slug = %s) OR d.slug = %s) "
-            "ORDER BY (w.name = %s) DESC, (w.finalized_version_number IS NOT NULL) DESC, (w.user_id = %s) DESC, w.updated_at DESC, w.id DESC LIMIT 1",
-            (r["name"], r["user_id"], clean_slug, clean_slug, r["name"], r["user_id"]),
-        )
+        wf_id = r.get("workflow_id")
+        if not wf_id:
+            wf_row = db.one(
+                "SELECT w.id FROM workflows w JOIN domains d ON d.id = w.domain_id "
+                "WHERE (w.name = %s OR (w.user_id = %s AND d.slug = %s) OR d.slug = %s) "
+                "ORDER BY (w.name = %s) DESC, (w.finalized_version_number IS NOT NULL) DESC, (w.user_id = %s) DESC, w.updated_at DESC, w.id DESC LIMIT 1",
+                (r["name"], r["user_id"], clean_slug, clean_slug, r["name"], r["user_id"]),
+            )
+            if wf_row:
+                wf_id = wf_row["id"]
+                try:
+                    db.execute("UPDATE custom_finance_models SET workflow_id = %s WHERE id = %s", (wf_id, r["id"]))
+                except Exception:
+                    pass
         published.append({
             "id": r["id"],
-            "workflow_id": wf_row["id"] if wf_row else None,
+            "workflow_id": wf_id,
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
@@ -246,7 +263,7 @@ def list_custom_models():
         })
 
     saved_rows = db.query(
-        "SELECT id, name, slug, domain_name, status, nodes_json, edges_json, created_at, updated_at "
+        "SELECT id, user_id, workflow_id, name, slug, domain_name, status, nodes_json, edges_json, created_at, updated_at "
         "FROM custom_finance_models WHERE user_id = %s AND status = 'SAVED' AND published_at IS NULL "
         "ORDER BY updated_at DESC",
         (user_id,)
@@ -268,8 +285,32 @@ def list_custom_models():
                 edges = json.loads(r["edges_json"]) if isinstance(r["edges_json"], str) else r["edges_json"]
         except Exception:
             pass
+
+        clean_slug = str(r["slug"] or "").replace("_", "-").lower()
+        wf_id = r.get("workflow_id")
+        if not wf_id:
+            wf_row = db.one(
+                "SELECT id FROM workflows WHERE user_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
+                (user_id, r["name"], r["name"].replace(" ", "_"), r["name"].replace("_", " "))
+            )
+            if wf_row:
+                wf_id = wf_row["id"]
+                try:
+                    db.execute("UPDATE custom_finance_models SET workflow_id = %s WHERE id = %s", (wf_id, r["id"]))
+                except Exception:
+                    pass
+            else:
+                dom_row = db.one("SELECT id FROM domains WHERE slug = %s LIMIT 1", (clean_slug,))
+                dom_id = dom_row["id"] if dom_row else 1
+                wf_id = repo.create(user_id, dom_id, name=r["name"])
+            try:
+                db.execute("UPDATE custom_finance_models SET workflow_id = %s WHERE id = %s", (wf_id, r["id"]))
+            except Exception:
+                pass
+
         saved.append({
             "id": r["id"],
+            "workflow_id": wf_id,
             "name": r["name"],
             "slug": r["slug"],
             "domainName": r["domain_name"],
@@ -300,15 +341,66 @@ def save_custom_model():
 
     db = get_db()
     user_id = g.user_id
+    clean_slug = str(slug).replace("_", "-").lower()
+
+    dom_row = db.one("SELECT id FROM domains WHERE slug = %s LIMIT 1", (clean_slug,))
+    dom_id = dom_row["id"] if dom_row else 1
+
+    repo = WorkflowRepository(db)
+
+    # 1. Did client pass a specific workflow id?
+    req_wf = data.get("wf") or request.headers.get("X-Workflow-Id") or request.args.get("wf")
+    wf_id = None
+    if req_wf:
+        try:
+            cand = repo.get_by_id(int(req_wf))
+            if cand and int(cand["user_id"]) == int(user_id) and int(cand["domain_id"]) == int(dom_id):
+                wf_id = cand["id"]
+        except (TypeError, ValueError):
+            pass
+
+    # 2. Check if a workflow exists with this model name
+    if not wf_id:
+        wf_row = db.one(
+            "SELECT id FROM workflows WHERE user_id = %s AND domain_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
+            (user_id, dom_id, name, name.replace(" ", "_"), name.replace("_", " "))
+        )
+        if wf_row:
+            wf_id = wf_row["id"]
+
+    # 3. Check if there is an un-named draft workflow for this user and domain
+    if not wf_id:
+        draft_row = db.one(
+            "SELECT id FROM workflows WHERE user_id = %s AND domain_id = %s AND (name IS NULL OR name = '') "
+            "AND id NOT IN (SELECT workflow_id FROM custom_finance_models WHERE workflow_id IS NOT NULL) "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (user_id, dom_id)
+        )
+        if draft_row:
+            wf_id = draft_row["id"]
+
+    # 4. If none, create a new workflow
+    if not wf_id:
+        wf_id = repo.create(user_id, dom_id, name=name)
+    else:
+        db.execute("UPDATE workflows SET name = %s, updated_at = NOW() WHERE id = %s", (name, wf_id))
+
     db.execute(
-        "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, nodes_json, edges_json) "
-        "VALUES (%s, %s, %s, %s, 'SAVED', %s, %s) "
-        "ON DUPLICATE KEY UPDATE slug=VALUES(slug), domain_name=VALUES(domain_name), "
+        "INSERT INTO custom_finance_models (user_id, workflow_id, name, slug, domain_name, status, nodes_json, edges_json) "
+        "VALUES (%s, %s, %s, %s, %s, 'SAVED', %s, %s) "
+        "ON DUPLICATE KEY UPDATE workflow_id=VALUES(workflow_id), slug=VALUES(slug), domain_name=VALUES(domain_name), "
         "status = IF(status = 'PUBLISHED' OR published_at IS NOT NULL, 'PUBLISHED', 'SAVED'), "
         "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
-        (user_id, name, slug, domain_name, nodes_json, edges_json)
+        (user_id, wf_id, name, slug, domain_name, nodes_json, edges_json)
     )
-    return jsonify({"ok": True, "name": name, "status": "SAVED", "savedAt": now_dt.isoformat(), "updatedAt": now_dt.isoformat()})
+    return jsonify({
+        "ok": True,
+        "name": name,
+        "workflow_id": wf_id,
+        "status": "SAVED",
+        "savedAt": now_dt.isoformat(),
+        "updatedAt": now_dt.isoformat(),
+    })
 
 
 @auth_required
@@ -319,20 +411,39 @@ def publish_custom_model():
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
     domain_name = data.get("domainName") or "Planning, Budgeting and Forecasting"
-    orig_dt = _parse_iso_datetime(data.get("publishedAt") or data.get("savedAt"))
 
     db = get_db()
     user_id = g.user_id
+    clean_slug = str(slug).replace("_", "-").lower() if slug else slug
+
+    dom_row = db.one("SELECT id FROM domains WHERE slug = %s LIMIT 1", (clean_slug,))
+    dom_id = dom_row["id"] if dom_row else 1
+
+    repo = WorkflowRepository(db)
+    wf_row = db.one(
+        "SELECT id FROM workflows WHERE user_id = %s AND domain_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
+        (user_id, dom_id, name, name.replace(" ", "_"), name.replace("_", " "))
+    )
+    if wf_row:
+        wf_id = wf_row["id"]
+    else:
+        active_wf = getattr(g, "_active_wf", None)
+        if active_wf and not active_wf.get("name") and int(active_wf.get("domain_id", 0)) == int(dom_id):
+            wf_id = active_wf["id"]
+            db.execute("UPDATE workflows SET name = %s WHERE id = %s", (name, wf_id))
+        else:
+            wf_id = repo.create(user_id, dom_id, name=name)
+
     db.execute(
-        "INSERT INTO custom_finance_models (user_id, name, slug, domain_name, status, published_at) "
-        "VALUES (%s, %s, %s, %s, 'PUBLISHED', NOW()) "
-        "ON DUPLICATE KEY UPDATE status='PUBLISHED', published_at=COALESCE(published_at, NOW()), updated_at=NOW()",
-        (user_id, name, slug, domain_name)
+        "INSERT INTO custom_finance_models (user_id, workflow_id, name, slug, domain_name, status, published_at) "
+        "VALUES (%s, %s, %s, %s, %s, 'PUBLISHED', NOW()) "
+        "ON DUPLICATE KEY UPDATE workflow_id=COALESCE(VALUES(workflow_id), workflow_id), status='PUBLISHED', published_at=COALESCE(published_at, NOW()), updated_at=NOW()",
+        (user_id, wf_id, name, slug, domain_name)
     )
     try:
         db.execute(
-            "UPDATE custom_finance_models SET status='PUBLISHED', published_at=COALESCE(published_at, NOW()) WHERE name=%s",
-            (name,)
+            "UPDATE custom_finance_models SET status='PUBLISHED', published_at=COALESCE(published_at, NOW()), workflow_id=COALESCE(workflow_id, %s) WHERE name=%s OR name=%s",
+            (wf_id, name, name.replace(" ", "_"))
         )
     except Exception:
         pass
@@ -340,23 +451,51 @@ def publish_custom_model():
     try:
         db.execute(
             "UPDATE workflows SET status='PUBLISHED', finalized_version_number=COALESCE(finalized_version_number, 1), finalized_at=NOW(), name=%s "
-            "WHERE user_id=%s AND domain_id=(SELECT id FROM domains WHERE slug=%s LIMIT 1)",
-            (name, user_id, slug)
+            "WHERE id=%s",
+            (name, wf_id)
         )
     except Exception:
         pass
 
-    return jsonify({"ok": True, "name": name, "status": "PUBLISHED"})
+    return jsonify({"ok": True, "name": name, "workflow_id": wf_id, "status": "PUBLISHED"})
 
 
 @auth_required
 def delete_custom_model(name: str):
     db = get_db()
     user_id = g.user_id
-    db.execute(
-        "DELETE FROM custom_finance_models WHERE user_id = %s AND name = %s AND status = 'SAVED' AND published_at IS NULL",
-        (user_id, name)
+    is_architect = getattr(g, "user_role", "") == "data_architect"
+    name_clean = (name or "").strip()
+    name_underscores = name_clean.replace(" ", "_")
+    name_spaces = name_clean.replace("_", " ")
+
+    wfs = db.query(
+        "SELECT id FROM workflows WHERE (name = %s OR name = %s OR name = %s)" + ("" if is_architect else " AND user_id = %s"),
+        (name_clean, name_underscores, name_spaces) if is_architect else (name_clean, name_underscores, name_spaces, user_id)
     )
+    for wf in wfs:
+        wid = wf["id"]
+        try:
+            db.execute("DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))
+            db.execute("DELETE FROM chat_questions WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))
+            db.execute("DELETE FROM conversations WHERE workflow_id = %s", (wid,))
+            db.execute("DELETE FROM user_graph_versions WHERE workflow_id = %s", (wid,))
+            db.execute("DELETE FROM uploaded_files WHERE workflow_id = %s", (wid,))
+            db.execute("DELETE FROM workflow_steps WHERE workflow_id = %s", (wid,))
+            db.execute("DELETE FROM workflows WHERE id = %s", (wid,))
+        except Exception:
+            pass
+
+    if is_architect:
+        db.execute(
+            "DELETE FROM custom_finance_models WHERE name = %s OR name = %s OR name = %s",
+            (name_clean, name_underscores, name_spaces),
+        )
+    else:
+        db.execute(
+            "DELETE FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s)",
+            (user_id, name_clean, name_underscores, name_spaces),
+        )
     return jsonify({"ok": True})
 
 

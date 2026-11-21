@@ -56,21 +56,26 @@ def graph_html(slug: str):
     """Returns the URL of the generated HTML graph, generating it if needed."""
     domain, wf = domain_wf(slug)
     from app.services.html_graph_service import HTMLGraphService
+    from app.services.reference_service import ReferenceService
     graph_dir = current_app.config["APP_CONFIG"].GRAPH_DIR
-    p = HTMLGraphService.get_graph_path(graph_dir, slug)
-    if not p.exists():
-        gs = GraphService(get_db())
-        try:
-            n, _ = gs.working(g.user_id, wf, domain)
-            gdata = gs.graph(g.user_id, wf, domain, n)
-        except Exception:
-            from app.services.reference_service import ReferenceService
-            gdata = ReferenceService(get_db()).domain_graph(slug, neighbours=True)
-        html_url = HTMLGraphService.save_html(slug, domain, gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
-    else:
-        clean_slug = slug.strip().replace(" ", "-").replace("%20", "-").lower()
-        html_url = f"/api/graphs/{clean_slug}.html"
+    is_fresh = request.args.get("fresh") == "1" or request.headers.get("X-Fresh") == "1"
 
+    if is_fresh or not wf:
+        gdata = ReferenceService(get_db()).domain_graph(slug, neighbours=True)
+        html_url = HTMLGraphService.save_html(slug, domain, gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
+        return jsonify({"html_url": html_url, "exists": True, "slug": slug})
+
+    gs = GraphService(get_db())
+    try:
+        latest = gs.graphs.latest(g.user_id, wf["id"])
+        if latest:
+            gdata = gs.graph(g.user_id, wf, domain, latest["version_number"])
+        else:
+            gdata = ReferenceService(get_db()).domain_graph(slug, neighbours=True)
+    except Exception:
+        gdata = ReferenceService(get_db()).domain_graph(slug, neighbours=True)
+
+    html_url = HTMLGraphService.save_html(slug, domain, gdata.get("nodes", []), gdata.get("edges", []), output_dir=graph_dir)
     return jsonify({"html_url": html_url, "exists": True, "slug": slug})
 
 

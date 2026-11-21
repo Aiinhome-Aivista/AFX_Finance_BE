@@ -42,7 +42,9 @@ class FileService:
 
     # ------------------------------------------------------------------ upload
     def upload(self, user_id, domain, storage):
-        wf = self.wfs.get_wf(user_id, domain, required=False)
+        from flask import g
+        g_wf = getattr(g, "_active_wf", None)
+        wf = g_wf or self.wfs.get_wf(user_id, domain, required=False)
         if not wf:
             self.wfs.start(user_id, domain)
             wf = self.wfs.get_wf(user_id, domain, required=True)
@@ -93,7 +95,9 @@ class FileService:
 
     # ------------------------------------------------------------------ read / delete
     def list(self, user_id, domain):
-        wf = self.wfs.get_wf(user_id, domain)
+        from flask import g
+        g_wf = getattr(g, "_active_wf", None)
+        wf = g_wf or self.wfs.get_wf(user_id, domain)
         return [_public(f, self.files.job_for_file(f["id"])) for f in self.files.list(user_id, wf["id"])]
 
     def detail(self, user_id, file_id):

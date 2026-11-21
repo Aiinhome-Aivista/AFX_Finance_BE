@@ -43,6 +43,13 @@ class ChatService:
         return f"llm:{self.llm.name}" if self.llm else "rule-based"
 
     def _wf(self, user_id, domain):
+        try:
+            from flask import g
+            g_wf = getattr(g, "_active_wf", None)
+            if g_wf:
+                return g_wf
+        except Exception:
+            pass
         wf = self.wfs.get_wf(user_id, domain, required=False)
         if not wf:
             u = self.wfs.users.by_id(user_id)
@@ -143,6 +150,7 @@ class ChatService:
 
         res = {
             "conversation_id": conv["id"],
+            "workflow_id": wf.get("id"),
             "messages": [m for m in msgs if new_from_id is None or m["id"] > new_from_id] if new_from_id else msgs,
             "open_question": {
                 "id": open_q["id"],

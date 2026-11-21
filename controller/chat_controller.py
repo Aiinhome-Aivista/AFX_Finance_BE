@@ -3,7 +3,7 @@ from flask import g, jsonify
 from app.db import get_db
 from app.security import auth_required, role_required
 from app.services.chat_service import ChatService
-from ._helpers import audit, domain_ctx, json_body, llm
+from ._helpers import audit, domain_ctx, domain_wf, json_body, llm
 
 
 def _svc():
@@ -20,7 +20,7 @@ def get(slug: str):
 @auth_required
 @role_required("data_architect")
 def start(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     out = _svc().start(g.user_id, domain)
     audit("chat.start", "domain", slug)
     return jsonify(out), 201

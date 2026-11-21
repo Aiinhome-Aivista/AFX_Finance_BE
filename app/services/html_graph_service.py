@@ -575,14 +575,15 @@ class HTMLGraphService:
         domain_name = domain.get("name") or clean_slug.replace("-", " ").title()
         domain_color = domain.get("color") or "#2563EB"
 
-        html_content = HTML_TEMPLATE.format(
-            domain_name=domain_name,
-            domain_slug=clean_slug,
-            domain_color=domain_color,
-            node_count=len(nodes),
-            edge_count=len(edges),
-            nodes_json=json.dumps(nodes, default=str),
-            edges_json=json.dumps(edges, default=str),
+        html_content = (
+            HTML_TEMPLATE
+            .replace("{domain_name}", str(domain_name))
+            .replace("{domain_slug}", str(clean_slug))
+            .replace("{domain_color}", str(domain_color))
+            .replace("{node_count}", str(len(nodes)))
+            .replace("{edge_count}", str(len(edges)))
+            .replace("{nodes_json}", json.dumps(nodes, default=str))
+            .replace("{edges_json}", json.dumps(edges, default=str))
         )
 
         file_path = cls.get_graph_path(output_dir, clean_slug)

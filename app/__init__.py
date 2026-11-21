@@ -26,7 +26,7 @@ def create_base_app(config: Config | None = None, llm_factory=None) -> Flask:
     CORS(
         app,
         resources={r"/*": {"origins": "*"}},
-        allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-Workflow-Id", "X-Model-Name", "X-Fresh"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     )
 
@@ -36,14 +36,14 @@ def create_base_app(config: Config | None = None, llm_factory=None) -> Flask:
             res = make_response()
             res.headers["Access-Control-Allow-Origin"] = "*"
             res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            res.headers["Access-Control-Allow-Headers"] = "*"
             return res, 204
 
     @app.after_request
     def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        response.headers["Access-Control-Allow-Headers"] = "*"
         return response
 
     app.extensions["llm"] = llm_factory() if llm_factory else build_provider(cfg)
