@@ -45,13 +45,18 @@ def resolve_workspace_wf(db, user_id, domain, create_if_missing=False):
     if not model_name and request.is_json:
         model_name = (request.get_json(silent=True) or {}).get("model")
     if model_name:
-        name_clean = str(model_name).strip()
-        name_u = name_clean.replace(" ", "_")
-        name_s = name_clean.replace("_", " ")
+        import urllib.parse
+        raw_m = urllib.parse.unquote_plus(str(model_name)).strip()
+        name_clean = raw_m
+        name_s = raw_m.replace("_", " ").replace("+", " ")
+        name_u = name_s.replace(" ", "_")
+        name_p = name_s.replace(" ", "+")
+        variants = list({name_clean, name_s, name_u, name_p, str(model_name).strip()})
+        placeholders = ", ".join(["%s"] * len(variants))
 
         cm = db.one(
-            "SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s) AND workflow_id IS NOT NULL LIMIT 1",
-            (user_id, name_clean, name_u, name_s)
+            f"SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND name IN ({placeholders}) AND workflow_id IS NOT NULL LIMIT 1",
+            tuple([user_id] + variants)
         )
         if cm and cm.get("workflow_id"):
             wf = repo.get_by_id(cm["workflow_id"])
@@ -59,13 +64,13 @@ def resolve_workspace_wf(db, user_id, domain, create_if_missing=False):
                 return wf
 
         row = db.one(
-            "SELECT * FROM workflows WHERE user_id = %s AND domain_id = %s AND (name = %s OR name = %s OR name = %s) ORDER BY updated_at DESC LIMIT 1",
-            (user_id, domain["id"], name_clean, name_u, name_s)
+            f"SELECT * FROM workflows WHERE user_id = %s AND domain_id = %s AND name IN ({placeholders}) ORDER BY updated_at DESC LIMIT 1",
+            tuple([user_id, domain["id"]] + variants)
         )
         if row:
             return repo._hydrate(row)
         if create_if_missing:
-            wid = repo.create(user_id, domain["id"], name=name_clean)
+            wid = repo.create(user_id, domain["id"], name=name_s)
             return repo.get_by_id(wid)
 
     is_fresh = request.args.get("fresh") == "1" or request.headers.get("X-Fresh") == "1"

@@ -337,7 +337,7 @@ def save_custom_model():
     if not name:
         return jsonify({"error": "Model name is required"}), 400
     slug = data.get("slug") or "planning-budgeting-forecasting"
-    domain_name = data.get("domainName")
+    domain_name = data.get("domainName") or "Planning, Budgeting & Forecasting"
     nodes_json = json.dumps(data.get("nodes")) if data.get("nodes") is not None else None
     edges_json = json.dumps(data.get("edges")) if data.get("edges") is not None else None
     now_dt = datetime.now()
@@ -351,10 +351,31 @@ def save_custom_model():
 
     repo = WorkflowRepository(db)
 
+    import urllib.parse
+    raw_name = urllib.parse.unquote_plus(str(name)).strip()
+    name_s = raw_name.replace("_", " ").replace("+", " ")
+    name_u = name_s.replace(" ", "_")
+    name_p = name_s.replace(" ", "+")
+    name_variants = list({raw_name, name_s, name_u, name_p, str(name).strip()})
+    name_placeholders = ", ".join(["%s"] * len(name_variants))
+
+    # Validation: Prevent creating duplicate workspace name when requested
+    check_duplicate = data.get("check_duplicate") or data.get("is_new") or data.get("mode") == "new"
+    if check_duplicate:
+        duplicate = db.one(
+            f"SELECT id, name FROM custom_finance_models WHERE (user_id = %s OR status = 'PUBLISHED') AND name IN ({name_placeholders}) LIMIT 1",
+            tuple([user_id] + name_variants)
+        )
+        if duplicate:
+            return jsonify({
+                "error": f"A workspace named '{duplicate['name']}' already exists. Please choose a different name.",
+                "code": "duplicate_workspace_name"
+            }), 409
+
     # 1. Check if the user already has a saved model with this name (Overwrite mode)
     existing_model = db.one(
-        "SELECT id, workflow_id FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s) LIMIT 1",
-        (user_id, name, name.replace(" ", "_"), name.replace("_", " "))
+        f"SELECT id, workflow_id FROM custom_finance_models WHERE user_id = %s AND name IN ({name_placeholders}) LIMIT 1",
+        tuple([user_id] + name_variants)
     )
     wf_id = None
     if existing_model:
@@ -389,26 +410,47 @@ def save_custom_model():
         if draft_row:
             wf_id = draft_row["id"]
 
+    stage = data.get("stage") or ""
+    is_finalize_stage = (stage == "finalize" or stage == "twin" or data.get("status") == "PUBLISHED" or data.get("is_finalized"))
+    is_new_workspace = bool(check_duplicate or data.get("is_new") or data.get("mode") == "new")
+
     # 4. If none, create a brand new workflow specifically for this workspace
     if not wf_id:
         wf_id = repo.create(user_id, dom_id, name=name)
-        db.execute(
-            "UPDATE workflows SET finalized_version_number = 2, finalized_at = NOW(), updated_at = NOW() WHERE id = %s",
-            (wf_id,)
-        )
+        if is_finalize_stage and not is_new_workspace:
+            db.execute(
+                "UPDATE workflows SET finalized_version_number = 2, finalized_at = NOW(), updated_at = NOW() WHERE id = %s",
+                (wf_id,)
+            )
+        else:
+            db.execute(
+                "UPDATE workflows SET finalized_version_number = NULL, finalized_at = NULL, updated_at = NOW() WHERE id = %s",
+                (wf_id,)
+            )
     else:
-        db.execute(
-            "UPDATE workflows SET name = %s, finalized_version_number = COALESCE(finalized_version_number, 2), "
-            "finalized_at = COALESCE(finalized_at, NOW()), updated_at = NOW() WHERE id = %s",
-            (name, wf_id)
-        )
+        if is_finalize_stage and not is_new_workspace:
+            db.execute(
+                "UPDATE workflows SET name = %s, finalized_version_number = COALESCE(finalized_version_number, 2), "
+                "finalized_at = COALESCE(finalized_at, NOW()), updated_at = NOW() WHERE id = %s",
+                (name, wf_id)
+            )
+        elif is_new_workspace:
+            db.execute(
+                "UPDATE workflows SET name = %s, finalized_version_number = NULL, finalized_at = NULL, updated_at = NOW() WHERE id = %s",
+                (name, wf_id)
+            )
+        else:
+            db.execute(
+                "UPDATE workflows SET name = %s, updated_at = NOW() WHERE id = %s",
+                (name, wf_id)
+            )
 
     db.execute(
         "INSERT INTO custom_finance_models (user_id, workflow_id, name, slug, domain_name, status, nodes_json, edges_json) "
         "VALUES (%s, %s, %s, %s, %s, 'SAVED', %s, %s) "
         "ON DUPLICATE KEY UPDATE workflow_id=VALUES(workflow_id), slug=VALUES(slug), domain_name=VALUES(domain_name), "
         "status = IF(status = 'PUBLISHED' OR published_at IS NOT NULL, 'PUBLISHED', 'SAVED'), "
-        "nodes_json=VALUES(nodes_json), edges_json=VALUES(edges_json), updated_at=NOW()",
+        "nodes_json=COALESCE(VALUES(nodes_json), nodes_json), edges_json=COALESCE(VALUES(edges_json), edges_json), updated_at=NOW()",
         (user_id, wf_id, name, slug, domain_name, nodes_json, edges_json)
     )
 
@@ -564,23 +606,29 @@ def delete_custom_model(name: str):
     db = get_db()
     user_id = g.user_id
     is_architect = getattr(g, "user_role", "") == "data_architect"
-    name_clean = (name or "").strip()
-    name_underscores = name_clean.replace(" ", "_")
-    name_spaces = name_clean.replace("_", " ")
+    
+    import urllib.parse
+    raw_name = urllib.parse.unquote_plus(str(name)).strip()
+    name_clean = raw_name
+    name_s = raw_name.replace("_", " ").replace("+", " ")
+    name_u = name_s.replace(" ", "_")
+    name_p = name_s.replace(" ", "+")
+    variants = list({raw_name, name_s, name_u, name_p, str(name).strip()})
+    placeholders = ", ".join(["%s"] * len(variants))
 
     wf_ids = set()
 
-    wfs = db.query(
-        "SELECT id FROM workflows WHERE (name = %s OR name = %s OR name = %s)" + ("" if is_architect else " AND user_id = %s"),
-        (name_clean, name_underscores, name_spaces) if is_architect else (name_clean, name_underscores, name_spaces, user_id)
-    )
+    # Find all workflows matching this workspace name or any of its variations
+    wfs_sql = f"SELECT id FROM workflows WHERE name IN ({placeholders})" + ("" if is_architect else " AND user_id = %s")
+    wfs_params = tuple(variants if is_architect else variants + [user_id])
+    wfs = db.query(wfs_sql, wfs_params)
     for wf in wfs:
         wf_ids.add(wf["id"])
 
-    cms = db.query(
-        "SELECT workflow_id FROM custom_finance_models WHERE (name = %s OR name = %s OR name = %s)" + ("" if is_architect else " AND user_id = %s"),
-        (name_clean, name_underscores, name_spaces) if is_architect else (name_clean, name_underscores, name_spaces, user_id)
-    )
+    # Also find workflows linked via custom_finance_models
+    cms_sql = f"SELECT workflow_id FROM custom_finance_models WHERE name IN ({placeholders})" + ("" if is_architect else " AND user_id = %s")
+    cms_params = tuple(variants if is_architect else variants + [user_id])
+    cms = db.query(cms_sql, cms_params)
     for cm in cms:
         if cm.get("workflow_id"):
             wf_ids.add(cm["workflow_id"])
@@ -591,43 +639,190 @@ def delete_custom_model(name: str):
         ws_db_svc = WorkspaceDbService(db, current_app.config["APP_CONFIG"])
         for wid in wf_ids:
             try:
-                ws_db_svc.delete_workspace_db(workflow_id=wid, workspace_name=name_clean)
+                ws_db_svc.delete_workspace_db(workflow_id=wid, workspace_name=name_s)
             except Exception as e:
                 log.warning("Failed dropping workspace DB for wf %s: %s", wid, e)
-        try:
-            ws_db_svc.delete_workspace_db(workspace_name=name_clean)
-        except Exception as e:
-            log.warning("Failed dropping workspace DB for name %s: %s", name_clean, e)
+        for var in variants:
+            try:
+                ws_db_svc.delete_workspace_db(workspace_name=var)
+            except Exception as e:
+                log.warning("Failed dropping workspace DB for name %s: %s", var, e)
     except Exception as e:
         log.warning("Error dropping workspace database: %s", e)
 
+    # Completely wipe all progress, history, questions, and graph nodes for all workflows of this workspace
     for wid in wf_ids:
         try:
             db.execute("DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))
             db.execute("DELETE FROM chat_questions WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))
             db.execute("DELETE FROM conversations WHERE workflow_id = %s", (wid,))
+            try:
+                db.execute("DELETE FROM change_items WHERE proposal_id IN (SELECT id FROM change_proposals WHERE workflow_id = %s)", (wid,))
+                db.execute("DELETE FROM change_proposals WHERE workflow_id = %s", (wid,))
+            except Exception:
+                pass
+            db.execute("DELETE FROM user_graph_nodes WHERE version_id IN (SELECT id FROM user_graph_versions WHERE workflow_id = %s)", (wid,))
+            db.execute("DELETE FROM user_graph_edges WHERE version_id IN (SELECT id FROM user_graph_versions WHERE workflow_id = %s)", (wid,))
             db.execute("DELETE FROM user_graph_versions WHERE workflow_id = %s", (wid,))
             db.execute("DELETE FROM uploaded_files WHERE workflow_id = %s", (wid,))
+            try:
+                db.execute("DELETE FROM export_jobs WHERE workflow_id = %s", (wid,))
+            except Exception:
+                pass
             db.execute("DELETE FROM workflow_steps WHERE workflow_id = %s", (wid,))
             db.execute("DELETE FROM workflows WHERE id = %s", (wid,))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Cascade delete error for workflow %s: %s", wid, e)
 
-    if is_architect:
-        db.execute(
-            "DELETE FROM custom_finance_models WHERE name = %s OR name = %s OR name = %s",
-            (name_clean, name_underscores, name_spaces),
-        )
-    else:
-        db.execute(
-            "DELETE FROM custom_finance_models WHERE user_id = %s AND (name = %s OR name = %s OR name = %s)",
-            (user_id, name_clean, name_underscores, name_spaces),
-        )
-    return jsonify({"ok": True})
+    del_cm_sql = f"DELETE FROM custom_finance_models WHERE name IN ({placeholders})" + ("" if is_architect else " AND user_id = %s")
+    del_cm_params = tuple(variants if is_architect else variants + [user_id])
+    db.execute(del_cm_sql, del_cm_params)
+
+    return jsonify({"ok": True, "deleted_workflows": list(wf_ids)})
 
 
 @auth_required
 def sync_custom_models():
     """Disabled permanently: Prevents client localStorage/cache from auto-re-inserting truncated models."""
     return list_custom_models()
+
+
+@auth_required
+def workspace_journey():
+    """
+    Returns the domain journey checkpoints for the active workspace.
+    Tracks each domain (F1..F8) modified in this workspace and determines its latest checkpoint:
+      - 'Data Input' (files uploaded/data ingested)
+      - 'Business Input' (chat/interview in progress or questions answered)
+      - 'Finalized' (final ontology published/saved)
+    """
+    db = get_db()
+    user_id = g.user_id
+    model_name = request.headers.get("X-Model-Name") or request.args.get("model")
+    if not model_name and request.is_json:
+        model_name = (request.get_json(silent=True) or {}).get("model")
+
+    if not model_name:
+        latest_cm = db.one(
+            "SELECT name FROM custom_finance_models WHERE user_id = %s ORDER BY updated_at DESC LIMIT 1",
+            (user_id,)
+        )
+        if latest_cm and latest_cm.get("name"):
+            model_name = latest_cm["name"]
+
+    if not model_name:
+        return jsonify({
+            "workspace_name": None,
+            "journey": []
+        })
+
+    import urllib.parse
+    raw_m = urllib.parse.unquote_plus(str(model_name)).strip()
+    name_clean = raw_m
+    name_s = raw_m.replace("_", " ").replace("+", " ")
+    name_u = name_s.replace(" ", "_")
+    name_p = name_s.replace(" ", "+")
+    variants = list({name_clean, name_s, name_u, name_p, str(model_name).strip()})
+    placeholders = ", ".join(["%s"] * len(variants))
+
+    rows = db.query(
+        f"""
+        SELECT DISTINCT w.id, w.domain_id, w.name, w.current_step, w.finalized_version_number, w.updated_at,
+               d.code AS domain_code, d.slug AS domain_slug, d.name AS domain_name, d.color AS domain_color,
+               d.description AS domain_description
+        FROM workflows w
+        JOIN domains d ON d.id = w.domain_id
+        WHERE w.user_id = %s AND (
+            w.name IN ({placeholders})
+            OR w.id IN (SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND name IN ({placeholders}) AND workflow_id IS NOT NULL)
+        )
+        ORDER BY d.code ASC, w.updated_at DESC
+        """,
+        tuple([user_id] + variants + [user_id] + variants)
+    )
+
+    seen_domains = set()
+    active_journey = []
+
+    for r in rows:
+        slug = r["domain_slug"]
+        if slug in seen_domains:
+            continue
+        seen_domains.add(slug)
+
+        wf_id = r["id"]
+
+        # Check uploaded files (Data Input)
+        file_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM uploaded_files WHERE workflow_id = %s", (wf_id,))
+        file_cnt = (file_cnt_row or {}).get("cnt", 0)
+
+        # Check user messages (Business Input)
+        msg_cnt_row = db.one(
+            """
+            SELECT COUNT(*) AS cnt FROM conversation_messages cm
+            JOIN conversations c ON cm.conversation_id = c.id
+            WHERE c.workflow_id = %s AND cm.role = 'user'
+            """,
+            (wf_id,)
+        )
+        msg_cnt = (msg_cnt_row or {}).get("cnt", 0)
+
+        prop_cnt = 0
+        try:
+            prop_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM change_proposals WHERE workflow_id = %s", (wf_id,))
+            prop_cnt = (prop_cnt_row or {}).get("cnt", 0)
+        except Exception:
+            pass
+
+        is_finalized = bool(r.get("finalized_version_number"))
+
+        # Only include domains that have genuine user activity in this workspace
+        # (user chatted in Business Input, uploaded file in Data Input, or created proposals)
+        has_actual_work = (file_cnt > 0) or (msg_cnt > 0) or (prop_cnt > 0)
+        if not has_actual_work:
+            continue
+
+        encoded_m = urllib.parse.quote_plus(name_s)
+        if is_finalized:
+            checkpoint = "Finalized"
+            checkpoint_key = "finalized"
+            checkpoint_badge = "Finalized"
+            checkpoint_color = "emerald"
+            resume_url = f"/finance/{slug}/finalize?model={encoded_m}&wf={wf_id}"
+        elif file_cnt > 0:
+            checkpoint = "Data Input"
+            checkpoint_key = "data_input"
+            checkpoint_badge = "Data Input"
+            checkpoint_color = "sky"
+            resume_url = f"/finance/{slug}?mode=upload&model={encoded_m}&wf={wf_id}"
+        else:
+            checkpoint = "Business Input"
+            checkpoint_key = "business_input"
+            checkpoint_badge = "Business Input"
+            checkpoint_color = "indigo"
+            resume_url = f"/finance/{slug}?model={encoded_m}&wf={wf_id}"
+
+        active_journey.append({
+            "domain_code": r["domain_code"],
+            "domain_slug": slug,
+            "domain_name": r["domain_name"],
+            "domain_color": r["domain_color"],
+            "workflow_id": wf_id,
+            "checkpoint": checkpoint,
+            "checkpoint_key": checkpoint_key,
+            "checkpoint_badge": checkpoint_badge,
+            "checkpoint_color": checkpoint_color,
+            "user_messages_count": msg_cnt,
+            "files_count": file_cnt,
+            "proposals_count": prop_cnt,
+            "is_finalized": is_finalized,
+            "resume_url": resume_url,
+            "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None
+        })
+
+    return jsonify({
+        "workspace_name": name_clean,
+        "journey": active_journey
+    })
+
 

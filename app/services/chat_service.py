@@ -281,7 +281,13 @@ class ChatService:
         _, state = self.graphs.working(user_id, wf, domain)
         plan = self._build_plan(state)
         with self.db.transaction():
-            cid = self.convs.create(user_id, wf["id"], plan)
+            try:
+                cid = self.convs.create(user_id, wf["id"], plan)
+            except Exception:
+                existing_conv = self.convs.get(user_id, wf["id"])
+                if existing_conv:
+                    return self.snapshot(user_id, wf, existing_conv)
+                raise
             conv = self.convs.get(user_id, wf["id"])
             u = self.db.one("SELECT display_name FROM users WHERE id = %s", (user_id,))
             full_name = u["display_name"] if u and u.get("display_name") else ""

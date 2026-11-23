@@ -13,7 +13,7 @@ def _svc():
 @auth_required
 @role_required("data_architect")
 def get(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     return jsonify(_svc().get(g.user_id, domain))
 
 
