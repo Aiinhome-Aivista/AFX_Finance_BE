@@ -1,6 +1,9 @@
 from datetime import datetime
 import json
+import logging
 from flask import current_app, g, jsonify, request
+
+log = logging.getLogger(__name__)
 
 from app.db import get_db
 from app.security import auth_optional, auth_required, role_required
@@ -565,12 +568,40 @@ def delete_custom_model(name: str):
     name_underscores = name_clean.replace(" ", "_")
     name_spaces = name_clean.replace("_", " ")
 
+    wf_ids = set()
+
     wfs = db.query(
         "SELECT id FROM workflows WHERE (name = %s OR name = %s OR name = %s)" + ("" if is_architect else " AND user_id = %s"),
         (name_clean, name_underscores, name_spaces) if is_architect else (name_clean, name_underscores, name_spaces, user_id)
     )
     for wf in wfs:
-        wid = wf["id"]
+        wf_ids.add(wf["id"])
+
+    cms = db.query(
+        "SELECT workflow_id FROM custom_finance_models WHERE (name = %s OR name = %s OR name = %s)" + ("" if is_architect else " AND user_id = %s"),
+        (name_clean, name_underscores, name_spaces) if is_architect else (name_clean, name_underscores, name_spaces, user_id)
+    )
+    for cm in cms:
+        if cm.get("workflow_id"):
+            wf_ids.add(cm["workflow_id"])
+
+    # Drop dynamic workspace MySQL databases (e.g. ws_219_saikatf1) & SQLite DBs
+    try:
+        from app.services.workspace_db_service import WorkspaceDbService
+        ws_db_svc = WorkspaceDbService(db, current_app.config["APP_CONFIG"])
+        for wid in wf_ids:
+            try:
+                ws_db_svc.delete_workspace_db(workflow_id=wid, workspace_name=name_clean)
+            except Exception as e:
+                log.warning("Failed dropping workspace DB for wf %s: %s", wid, e)
+        try:
+            ws_db_svc.delete_workspace_db(workspace_name=name_clean)
+        except Exception as e:
+            log.warning("Failed dropping workspace DB for name %s: %s", name_clean, e)
+    except Exception as e:
+        log.warning("Error dropping workspace database: %s", e)
+
+    for wid in wf_ids:
         try:
             db.execute("DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))
             db.execute("DELETE FROM chat_questions WHERE conversation_id IN (SELECT id FROM conversations WHERE workflow_id = %s)", (wid,))

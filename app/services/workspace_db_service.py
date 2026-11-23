@@ -115,6 +115,66 @@ class WorkspaceDbService:
             "workspace_name": workspace_name
         }
 
+    def delete_workspace_db(self, workflow_id: int = None, workspace_name: str = ""):
+        """Drops dedicated MySQL database schemas (e.g. ws_219_saikatf1) and unlinks SQLite database files."""
+        clean_name = sanitize_ident(workspace_name) if workspace_name else ""
+        dbs_to_drop = set()
+
+        # 1. Identify MySQL databases to drop
+        if workflow_id:
+            if clean_name:
+                dbs_to_drop.add(f"ws_{workflow_id}_{clean_name}")
+            try:
+                rows = self.db.query(
+                    "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME LIKE %s",
+                    (f"ws_{workflow_id}_%",)
+                )
+                for r in rows:
+                    if r and r.get("SCHEMA_NAME"):
+                        dbs_to_drop.add(r["SCHEMA_NAME"])
+            except Exception as e:
+                log.warning("Could not query schemata for workflow_id %s: %s", workflow_id, e)
+
+        if clean_name:
+            try:
+                rows = self.db.query(
+                    "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME LIKE %s",
+                    (f"ws_%_{clean_name}",)
+                )
+                for r in rows:
+                    if r and r.get("SCHEMA_NAME"):
+                        dbs_to_drop.add(r["SCHEMA_NAME"])
+            except Exception as e:
+                log.warning("Could not query schemata for clean_name %s: %s", clean_name, e)
+
+        # Drop the MySQL schemas safely (strictly validating ws_<wf_id>_<name> format)
+        for db_name in dbs_to_drop:
+            if re.match(r"^ws_\d+_[a-zA-Z0-9_]+$", db_name):
+                try:
+                    self.db.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+                    log.info("Dropped MySQL workspace database schema: %s", db_name)
+                except Exception as e:
+                    log.warning("Could not drop MySQL database %s: %s", db_name, e)
+
+        # 2. Unlink SQLite database files
+        try:
+            base_dir = Path(self.cfg.UPLOAD_DIR) / "workspace_dbs"
+            if base_dir.exists():
+                sqlite_patterns = []
+                if workflow_id:
+                    sqlite_patterns.append(f"ws_{workflow_id}_*.db")
+                if clean_name:
+                    sqlite_patterns.append(f"ws_*_{clean_name}.db")
+                for pat in sqlite_patterns:
+                    for db_file in base_dir.glob(pat):
+                        try:
+                            db_file.unlink(missing_ok=True)
+                            log.info("Unlinked SQLite database file: %s", db_file)
+                        except Exception as e:
+                            log.warning("Could not unlink SQLite file %s: %s", db_file, e)
+        except Exception as e:
+            log.warning("Could not clean up SQLite database files: %s", e)
+
     def is_workspace_db_ready(self, workflow_id: int, workspace_name: str = "") -> bool:
         if not workflow_id:
             return False
