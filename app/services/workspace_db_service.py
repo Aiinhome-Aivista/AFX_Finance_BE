@@ -62,10 +62,8 @@ class WorkspaceDbService:
         db_name = self.get_db_name(workflow_id, workspace_name)
         sqlite_path = self.get_sqlite_path(workflow_id, workspace_name)
 
-        # 1. Initialize clean SQLite workspace database
+        # 1. Initialize SQLite workspace database (preserves existing tables on Save Progress)
         try:
-            if sqlite_path.exists():
-                sqlite_path.unlink()
             conn = sqlite3.connect(str(sqlite_path))
             cur = conn.cursor()
             cur.execute("""
@@ -77,13 +75,15 @@ class WorkspaceDbService:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            cur.execute(
-                "INSERT INTO _workspace_metadata (workspace_name, workflow_id, user_id) VALUES (?, ?, ?)",
-                (workspace_name, workflow_id, user_id)
-            )
-            conn.commit()
+            cur.execute("SELECT COUNT(*) FROM _workspace_metadata WHERE workflow_id = ?", (workflow_id,))
+            if cur.fetchone()[0] == 0:
+                cur.execute(
+                    "INSERT INTO _workspace_metadata (workspace_name, workflow_id, user_id) VALUES (?, ?, ?)",
+                    (workspace_name, workflow_id, user_id)
+                )
+                conn.commit()
             conn.close()
-            log.info("Initialized blank SQLite workspace database: %s", sqlite_path)
+            log.info("Workspace SQLite database ready: %s", sqlite_path)
         except Exception as e:
             log.warning("Could not initialize SQLite workspace database: %s", e)
 
