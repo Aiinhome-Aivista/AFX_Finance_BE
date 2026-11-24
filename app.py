@@ -122,6 +122,14 @@ def create_app() -> Flask:
     def api_workspace_journey():
         return domain_controller.workspace_journey()
 
+    @app.route("/api/workspace/review", methods=["GET", "POST"])
+    def api_workspace_review():
+        return domain_controller.workspace_review()
+
+    @app.route("/api/workspace/finalize", methods=["POST"])
+    def api_workspace_finalize():
+        return domain_controller.workspace_finalize()
+
     @app.route("/api/domains/<slug>/workspace-db-status", methods=["GET"])
     def api_workspace_db_status(slug):
         return domain_controller.workspace_db_status(slug)

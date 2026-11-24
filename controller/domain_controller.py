@@ -826,3 +826,411 @@ def workspace_journey():
     })
 
 
+@auth_required
+def workspace_review():
+    """
+    Returns the workspace-level review data:
+    1. The full baseline enterprise ontology graph (from ReferenceService().overview_graph()).
+    2. Identifies all worked/touched domains in this workspace.
+    3. Overlays any customized/added/modified nodes and edges from touched domains.
+    4. Computes cumulative comparison metrics (entities added/modified/removed, links added/relabelled/removed).
+    5. Returns worked_domains list and domain keys (e.g. ['f1', 'f2']).
+    Never throws a 409 conflict error.
+    """
+    db = get_db()
+    user_id = g.user_id
+    model_name = request.headers.get("X-Model-Name") or request.args.get("model")
+    if not model_name and request.is_json:
+        model_name = (request.get_json(silent=True) or {}).get("model")
+
+    if not model_name:
+        latest_cm = db.one(
+            "SELECT name FROM custom_finance_models WHERE user_id = %s ORDER BY updated_at DESC LIMIT 1",
+            (user_id,)
+        )
+        if latest_cm and latest_cm.get("name"):
+            model_name = latest_cm["name"]
+
+    import urllib.parse
+    raw_m = urllib.parse.unquote_plus(str(model_name or "")).strip()
+    name_clean = raw_m
+    name_s = raw_m.replace("_", " ").replace("+", " ")
+    name_u = name_s.replace(" ", "_")
+    name_p = name_s.replace(" ", "+")
+    variants = list({name_clean, name_s, name_u, name_p, str(model_name or "").strip()}) if model_name else []
+    placeholders = ", ".join(["%s"] * len(variants)) if variants else "%s"
+
+    ref = ReferenceService(db)
+    base_overview = ref.overview_graph()
+    base_nodes = list(base_overview.get("nodes", []))
+    base_edges = list(base_overview.get("edges", []))
+    flows = list(base_overview.get("flows", []))
+
+    if not variants:
+        return jsonify({
+            "workspace_name": None,
+            "worked_domains": [],
+            "worked_domain_keys": [],
+            "graph": {
+                "nodes": base_nodes,
+                "edges": base_edges,
+                "flows": flows,
+            },
+            "comparison": {
+                "counts": {
+                    "nodes_added": 0,
+                    "nodes_modified": 0,
+                    "nodes_removed": 0,
+                    "edges_added": 0,
+                    "edges_modified": 0,
+                    "edges_removed": 0,
+                },
+                "nodes_added": [],
+                "nodes_modified": [],
+                "nodes_removed": [],
+                "edges_added": [],
+                "edges_modified": [],
+                "edges_removed": [],
+            },
+            "history": []
+        })
+
+    # Find workflows for this workspace
+    rows = db.query(
+        f"""
+        SELECT DISTINCT w.id, w.domain_id, w.name, w.current_step, w.finalized_version_number, w.updated_at,
+               d.code AS domain_code, d.slug AS domain_slug, d.name AS domain_name, d.color AS domain_color,
+               d.description AS domain_description
+        FROM workflows w
+        JOIN domains d ON d.id = w.domain_id
+        WHERE w.user_id = %s AND (
+            w.name IN ({placeholders})
+            OR w.id IN (SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND name IN ({placeholders}) AND workflow_id IS NOT NULL)
+        )
+        ORDER BY d.code ASC, w.updated_at DESC
+        """,
+        tuple([user_id] + variants + [user_id] + variants)
+    )
+
+    from app.services.graph_service import GraphService
+    from app.repositories.workflows import WorkflowRepository
+    repo = WorkflowRepository(db)
+    gs = GraphService(db)
+
+    seen_domains = set()
+    worked_domains = []
+    worked_domain_keys = set()
+
+    total_counts = {
+        "nodes_added": 0,
+        "nodes_modified": 0,
+        "nodes_removed": 0,
+        "edges_added": 0,
+        "edges_modified": 0,
+        "edges_removed": 0,
+    }
+    all_nodes_added = []
+    all_nodes_modified = []
+    all_nodes_removed = []
+    all_edges_added = []
+    all_edges_modified = []
+    all_edges_removed = []
+    all_history = []
+
+    # Map of existing node keys to avoid duplicate insertion
+    existing_node_keys = {str(n.get("key") or n.get("id") or n.get("n")) for n in base_nodes}
+    existing_edge_keys = {
+        (str(e.get("srcId") or e.get("source") or e.get("from")),
+         str(e.get("tgtId") or e.get("target") or e.get("to")))
+        for e in base_edges
+    }
+
+    per_domain_diffs = {}
+
+    for r in rows:
+        slug = r["domain_slug"]
+        if slug in seen_domains:
+            continue
+        seen_domains.add(slug)
+        wf_id = r["id"]
+
+        file_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM uploaded_files WHERE workflow_id = %s", (wf_id,))
+        file_cnt = (file_cnt_row or {}).get("cnt", 0)
+
+        msg_cnt_row = db.one(
+            """
+            SELECT COUNT(*) AS cnt FROM conversation_messages cm
+            JOIN conversations c ON cm.conversation_id = c.id
+            WHERE c.workflow_id = %s AND cm.role = 'user'
+            """,
+            (wf_id,)
+        )
+        msg_cnt = (msg_cnt_row or {}).get("cnt", 0)
+
+        prop_cnt = 0
+        try:
+            prop_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM change_proposals WHERE workflow_id = %s", (wf_id,))
+            prop_cnt = (prop_cnt_row or {}).get("cnt", 0)
+        except Exception:
+            pass
+
+        has_actual_work = (file_cnt > 0) or (msg_cnt > 0) or (prop_cnt > 0)
+        if not has_actual_work:
+            continue
+
+        d_code = (r["domain_code"] or "").lower()  # e.g. "f1"
+        worked_domains.append({
+            "domain_code": r["domain_code"],
+            "domain_key": d_code,
+            "domain_slug": slug,
+            "domain_name": r["domain_name"],
+            "domain_color": r["domain_color"],
+            "workflow_id": wf_id,
+            "is_finalized": bool(r.get("finalized_version_number")),
+        })
+        if d_code:
+            worked_domain_keys.add(d_code)
+
+        # Check customized graph versions
+        latest = gs.graphs.latest(user_id, wf_id)
+        if latest and latest["version_number"] > 0:
+            try:
+                wf_row = repo.get_by_id(wf_id)
+                dom_row = ref.domain(slug)
+                diff = gs.compare(user_id, wf_row, dom_row, 0, latest["version_number"])
+                per_domain_diffs[slug] = diff
+
+                counts = diff.get("counts", {})
+                total_counts["nodes_added"] += counts.get("nodes_added", 0)
+                total_counts["nodes_modified"] += counts.get("nodes_modified", 0)
+                total_counts["nodes_removed"] += counts.get("nodes_removed", 0)
+                total_counts["edges_added"] += counts.get("edges_added", 0)
+                total_counts["edges_modified"] += counts.get("edges_modified", 0)
+                total_counts["edges_removed"] += counts.get("edges_removed", 0)
+
+                # Collect added nodes
+                for n in diff.get("nodes_added", []):
+                    n_copy = dict(n)
+                    n_copy["domain_slug"] = slug
+                    n_copy["domain_code"] = r["domain_code"]
+                    n_copy["domain_name"] = r["domain_name"]
+                    n_copy["is_new"] = True
+                    n_copy["is_discrepancy"] = True
+                    n_copy["gap_status"] = "missing"
+                    all_nodes_added.append(n_copy)
+
+                    # Also inject into the graph nodes if not already present
+                    n_key = str(n.get("key") or n.get("name"))
+                    if n_key not in existing_node_keys:
+                        existing_node_keys.add(n_key)
+                        base_nodes.append({
+                            "id": n_key,
+                            "key": n_key,
+                            "name": n.get("name") or n_key,
+                            "n": n.get("name") or n_key,
+                            "d": d_code,
+                            "group_key": d_code,
+                            "group_name": r["domain_name"],
+                            "color": "#ef4444",
+                            "gap_color": "#ef4444",
+                            "is_discrepancy": True,
+                            "gap_status": "missing",
+                            "role": "client",
+                            "origin": "user",
+                            "definition": n.get("definition") or "",
+                            "attributes": n.get("attributes") or [],
+                            "formulas": n.get("formulas") or [],
+                        })
+
+                # Collect modified nodes
+                for n in diff.get("nodes_modified", []):
+                    n_copy = dict(n)
+                    n_copy["domain_slug"] = slug
+                    n_copy["domain_code"] = r["domain_code"]
+                    n_copy["domain_name"] = r["domain_name"]
+                    all_nodes_modified.append(n_copy)
+
+                for n in diff.get("nodes_removed", []):
+                    all_nodes_removed.append(n)
+
+                for e in diff.get("edges_added", []):
+                    all_edges_added.append(e)
+                    src = str(e.get("source") or e.get("srcId"))
+                    tgt = str(e.get("target") or e.get("tgtId"))
+                    if (src, tgt) not in existing_edge_keys:
+                        existing_edge_keys.add((src, tgt))
+                        base_edges.append({
+                            "id": f"{src}->{tgt}",
+                            "srcId": src,
+                            "tgtId": tgt,
+                            "source": src,
+                            "target": tgt,
+                            "label": e.get("label") or "relates to",
+                            "is_new": True,
+                        })
+
+                # History
+                with_items, _ = gs._proposal_context(user_id, wf_id)
+                for p, items in with_items:
+                    all_history.append({
+                        "id": p["id"],
+                        "title": p["title"],
+                        "source": p["source"],
+                        "status": p["status"],
+                        "created_at": p["created_at"],
+                        "decided_at": p["decided_at"],
+                        "result_version": p["result_version_number"],
+                        "domain_code": r["domain_code"],
+                        "domain_slug": slug,
+                        "items": [{"op": i["op"], "description": i["description"], "rationale": i.get("rationale"), "status": i["status"]} for i in items]
+                    })
+            except Exception as ex:
+                log.warning("Error comparing graph for domain %s: %s", slug, ex)
+
+    # Tag all nodes in base_nodes with whether their domain is worked on
+    for n in base_nodes:
+        n_d = str(n.get("group_key") or n.get("d") or "").lower()
+        n["is_worked"] = (n_d in worked_domain_keys) or (n.get("role") == "client") or (n.get("origin") == "user")
+
+    return jsonify({
+        "ok": True,
+        "workspace_name": name_clean,
+        "worked_domains": worked_domains,
+        "worked_domain_keys": list(worked_domain_keys),
+        "graph": {
+            "nodes": base_nodes,
+            "edges": base_edges,
+            "flows": flows,
+        },
+        "comparison": {
+            "counts": total_counts,
+            "nodes_added": all_nodes_added,
+            "nodes_modified": all_nodes_modified,
+            "nodes_removed": all_nodes_removed,
+            "edges_added": all_edges_added,
+            "edges_modified": all_edges_modified,
+            "edges_removed": all_edges_removed,
+            "per_domain": per_domain_diffs,
+        },
+        "history": all_history,
+    })
+
+
+@auth_required
+@role_required("data_architect")
+def workspace_finalize():
+    """
+    Finalizes and snapshots all worked domains in the active workspace.
+    Saves and locks only the worked domains (e.g. F1, F2).
+    """
+    db = get_db()
+    user_id = g.user_id
+    body = json_body()
+    model_name = body.get("name") or body.get("model") or request.headers.get("X-Model-Name") or request.args.get("model")
+
+    if not model_name:
+        latest_cm = db.one(
+            "SELECT name FROM custom_finance_models WHERE user_id = %s ORDER BY updated_at DESC LIMIT 1",
+            (user_id,)
+        )
+        if latest_cm and latest_cm.get("name"):
+            model_name = latest_cm["name"]
+
+    if not model_name:
+        return jsonify({"error": "Model name is required"}), 400
+
+    import urllib.parse
+    raw_m = urllib.parse.unquote_plus(str(model_name)).strip()
+    name_clean = raw_m
+    name_s = raw_m.replace("_", " ").replace("+", " ")
+    name_u = name_s.replace(" ", "_")
+    name_p = name_s.replace(" ", "+")
+    variants = list({name_clean, name_s, name_u, name_p, str(model_name).strip()})
+    placeholders = ", ".join(["%s"] * len(variants))
+
+    rows = db.query(
+        f"""
+        SELECT DISTINCT w.id, w.domain_id, w.name, w.finalized_version_number,
+               d.code AS domain_code, d.slug AS domain_slug, d.name AS domain_name
+        FROM workflows w
+        JOIN domains d ON d.id = w.domain_id
+        WHERE w.user_id = %s AND (
+            w.name IN ({placeholders})
+            OR w.id IN (SELECT workflow_id FROM custom_finance_models WHERE user_id = %s AND name IN ({placeholders}) AND workflow_id IS NOT NULL)
+        )
+        """,
+        tuple([user_id] + variants + [user_id] + variants)
+    )
+
+    from app.services.graph_service import GraphService
+    gs = GraphService(db)
+
+    finalized_domains = []
+    seen = set()
+
+    for r in rows:
+        slug = r["domain_slug"]
+        if slug in seen:
+            continue
+        seen.add(slug)
+        wf_id = r["id"]
+
+        # Only finalize domains that had actual work
+        file_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM uploaded_files WHERE workflow_id = %s", (wf_id,))
+        file_cnt = (file_cnt_row or {}).get("cnt", 0)
+
+        msg_cnt_row = db.one(
+            """
+            SELECT COUNT(*) AS cnt FROM conversation_messages cm
+            JOIN conversations c ON cm.conversation_id = c.id
+            WHERE c.workflow_id = %s AND cm.role = 'user'
+            """,
+            (wf_id,)
+        )
+        msg_cnt = (msg_cnt_row or {}).get("cnt", 0)
+
+        prop_cnt = 0
+        try:
+            prop_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM change_proposals WHERE workflow_id = %s", (wf_id,))
+            prop_cnt = (prop_cnt_row or {}).get("cnt", 0)
+        except Exception:
+            pass
+
+        has_actual_work = (file_cnt > 0) or (msg_cnt > 0) or (prop_cnt > 0)
+        if not has_actual_work:
+            continue
+
+        latest = gs.graphs.latest(user_id, wf_id)
+        ver_to_finalize = (latest["version_number"] if latest else 1) or 1
+        with db.transaction():
+            if latest:
+                gs.graphs.mark_status(latest["id"], "finalized")
+            db.execute(
+                "UPDATE workflows SET finalized_version_number = %s, finalized_at = NOW(), current_step = 5 WHERE id = %s",
+                (ver_to_finalize, wf_id)
+            )
+            db.execute(
+                "UPDATE workflow_steps SET status = 'completed', completed_at = NOW() WHERE workflow_id = %s AND step_no <= 4",
+                (wf_id,)
+            )
+
+        finalized_domains.append({
+            "domain_code": r["domain_code"],
+            "domain_slug": slug,
+            "workflow_id": wf_id,
+            "version": ver_to_finalize,
+        })
+
+    # Update custom_finance_models status
+    db.execute(
+        f"UPDATE custom_finance_models SET status = 'SAVED', updated_at = NOW() WHERE user_id = %s AND name IN ({placeholders})",
+        tuple([user_id] + variants)
+    )
+
+    return jsonify({
+        "ok": True,
+        "workspace_name": name_clean,
+        "finalized_domains": finalized_domains
+    })
+
+
