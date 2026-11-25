@@ -756,6 +756,29 @@ def workspace_journey():
         file_cnt_row = db.one("SELECT COUNT(*) AS cnt FROM uploaded_files WHERE workflow_id = %s", (wf_id,))
         file_cnt = (file_cnt_row or {}).get("cnt", 0)
 
+        # Get detailed uploaded files list
+        uploaded_files_list = []
+        if file_cnt > 0:
+            uf_rows = db.query(
+                """
+                SELECT id, original_name, ext, size_bytes, status, stage, created_at
+                FROM uploaded_files
+                WHERE workflow_id = %s
+                ORDER BY id ASC
+                """,
+                (wf_id,)
+            )
+            for uf in uf_rows:
+                uploaded_files_list.append({
+                    "id": uf["id"],
+                    "original_name": uf["original_name"],
+                    "ext": uf.get("ext"),
+                    "size_bytes": uf.get("size_bytes"),
+                    "status": uf.get("status"),
+                    "stage": uf.get("stage"),
+                    "created_at": uf["created_at"].isoformat() if uf.get("created_at") else None
+                })
+
         # Check user messages (Business Input)
         msg_cnt_row = db.one(
             """
@@ -766,6 +789,61 @@ def workspace_journey():
             (wf_id,)
         )
         msg_cnt = (msg_cnt_row or {}).get("cnt", 0)
+
+        # Get detailed Q&A list from chat_questions (only answered questions)
+        qa_list = []
+        cq_rows = db.query(
+            """
+            SELECT cq.id, cq.seq, cq.node_key, cq.topic, cq.question_text, cq.answer_text, cq.status, cq.answered_at
+            FROM chat_questions cq
+            JOIN conversations c ON cq.conversation_id = c.id
+            WHERE c.workflow_id = %s AND cq.answer_text IS NOT NULL AND TRIM(cq.answer_text) != ''
+            ORDER BY cq.seq ASC, cq.id ASC
+            """,
+            (wf_id,)
+        )
+        for cq in cq_rows:
+            qa_list.append({
+                "id": cq["id"],
+                "seq": cq.get("seq"),
+                "node_key": cq.get("node_key"),
+                "topic": cq.get("topic"),
+                "question": cq.get("question_text"),
+                "answer": cq.get("answer_text"),
+                "status": cq.get("status"),
+                "answered_at": cq["answered_at"].isoformat() if cq.get("answered_at") else None
+            })
+
+        # If no chat_questions found but user messages exist, fallback to conversation_messages
+        if not qa_list and msg_cnt > 0:
+            cm_rows = db.query(
+                """
+                SELECT cm.id, cm.role, cm.content, cm.created_at
+                FROM conversation_messages cm
+                JOIN conversations c ON cm.conversation_id = c.id
+                WHERE c.workflow_id = %s
+                ORDER BY cm.id ASC
+                """,
+                (wf_id,)
+            )
+            # Pair assistant questions with subsequent user answers
+            last_q = None
+            for cm in cm_rows:
+                if cm["role"] == "assistant":
+                    # Simple heuristic: last sentence or question mark
+                    content = (cm.get("content") or "").strip()
+                    if "?" in content:
+                        last_q = content
+                elif cm["role"] == "user":
+                    ans_text = (cm.get("content") or "").strip()
+                    qa_list.append({
+                        "id": cm["id"],
+                        "question": last_q or "Business interview question",
+                        "answer": ans_text,
+                        "status": "answered",
+                        "answered_at": cm["created_at"].isoformat() if cm.get("created_at") else None
+                    })
+                    last_q = None
 
         prop_cnt = 0
         try:
@@ -814,6 +892,8 @@ def workspace_journey():
             "checkpoint_color": checkpoint_color,
             "user_messages_count": msg_cnt,
             "files_count": file_cnt,
+            "uploaded_files_list": uploaded_files_list,
+            "qa_list": qa_list,
             "proposals_count": prop_cnt,
             "is_finalized": is_finalized,
             "resume_url": resume_url,
