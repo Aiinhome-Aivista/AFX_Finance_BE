@@ -31,7 +31,7 @@ class Config:
     ARANGO_DB: str = ""
     UPLOAD_DIR: str = "./uploads"
     GRAPH_DIR: str = "./graphs"
-    MAX_UPLOAD_MB: int = 100
+    MAX_UPLOAD_MB: int = 25
     PROCESSING_MODE: str = "async"
     LLM_PROVIDER: str = "none"
     LLM_MODEL: str = ""
@@ -61,7 +61,7 @@ class Config:
             ARANGO_DB=e.get("ARANGO_DB", ""),
             UPLOAD_DIR=e.get("UPLOAD_DIR", "./uploads"),
             GRAPH_DIR=e.get("GRAPH_DIR", "./graphs"),
-            MAX_UPLOAD_MB=int(e.get("MAX_UPLOAD_MB", 100)),
+            MAX_UPLOAD_MB=int(e.get("MAX_UPLOAD_MB", 25)),
             PROCESSING_MODE=e.get("PROCESSING_MODE", "async"),
             LLM_PROVIDER=e.get("LLM_PROVIDER", "none").lower(),
             LLM_MODEL=e.get("LLM_MODEL", ""),
