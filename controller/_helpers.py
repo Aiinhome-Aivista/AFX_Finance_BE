@@ -135,6 +135,11 @@ def read_domain_wf(slug, wf_id=None):
             raise ValidationError("Invalid workflow id.")
         wf = repo.get_by_id(parsed_id)
         if not wf or int(wf["domain_id"]) != int(domain["id"]):
+            # # If the user passed a wf that belongs to another domain (e.g. from workspace or previous page),
+            # # gracefully resolve the workflow for this domain and workspace if possible
+            # wf_resolved = resolve_workspace_wf(db, g.user_id, domain, create_if_missing=False)
+            # if wf_resolved:
+            #     return domain, wf_resolved
             raise NotFoundError("Published model workflow not found for this domain.")
         if role == "data_analyst":
             if not wf.get("finalized_version_number"):

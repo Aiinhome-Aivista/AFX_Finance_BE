@@ -29,6 +29,8 @@ def start(slug: str):
 @auth_required
 @role_required("data_architect")
 def answer(slug: str):
+    #if anything happens just uncomment this and comment the one what uncommented
+    # domain, _ = domain_wf(slug)
     domain, _ = domain_ctx(slug)
     return jsonify(_svc().answer(g.user_id, domain, json_body().get("message")))
 
@@ -36,6 +38,7 @@ def answer(slug: str):
 @auth_required
 @role_required("data_architect")
 def message(slug: str):
+    # domain, _ = domain_wf(slug)
     domain, _ = domain_ctx(slug)
     d = json_body()
     return jsonify(_svc().chat_message(g.user_id, domain, d.get("message"), d.get("node_key")))
@@ -44,7 +47,7 @@ def message(slug: str):
 @auth_required
 @role_required("data_architect")
 def ask_node(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     d = json_body()
     return jsonify(_svc().ask_node(g.user_id, domain, d.get("node_key"), d.get("question")))
 
@@ -52,14 +55,14 @@ def ask_node(slug: str):
 @auth_required
 @role_required("data_architect")
 def focus(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     return jsonify(_svc().focus(g.user_id, domain, json_body().get("node_key")))
 
 
 @auth_required
 @role_required("data_architect")
 def propose(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     out = _svc().propose(g.user_id, domain)
     audit("chat.propose", "proposal", (out.get("proposal") or {}).get("id"))
     return jsonify(out)
@@ -68,6 +71,6 @@ def propose(slug: str):
 @auth_required
 @role_required("data_architect")
 def session_decision(slug: str):
-    domain, _ = domain_ctx(slug)
+    domain, _ = domain_wf(slug)
     d = json_body()
     return jsonify(_svc().decide_session(g.user_id, domain, d.get("action")))
