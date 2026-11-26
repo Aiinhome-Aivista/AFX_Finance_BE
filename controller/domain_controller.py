@@ -500,21 +500,24 @@ def workspace_db_status(slug: str):
         (wf["id"], g.user_id, model_name, domain["slug"])
     )
 
+    is_finalized = False
     if cm:
+        is_finalized = bool(cm.get("status") == "PUBLISHED" or cm.get("published_at") is not None or wf.get("finalized_version_number"))
         eff_name = cm["name"]
         eff_wfid = cm.get("workflow_id") or wf["id"]
         is_ready = ws_svc.is_workspace_db_ready(eff_wfid, eff_name)
-        if not is_ready:
+        if not is_ready and is_finalized:
             ws_svc.create_workspace_db(g.user_id, eff_wfid, eff_name)
             is_ready = True
-        tables = ws_svc.list_tables(eff_wfid, eff_name)
+        tables = ws_svc.list_tables(eff_wfid, eff_name) if is_ready else []
         return jsonify({
-            "ready": True,
-            "status": "READY",
-            "db_name": ws_svc.get_db_name(eff_wfid, eff_name),
+            "ready": is_ready and is_finalized,
+            "status": "READY" if (is_ready and is_finalized) else "LOCKED",
+            "db_name": ws_svc.get_db_name(eff_wfid, eff_name) if is_ready else None,
             "workflow_id": eff_wfid,
             "workspace_name": eff_name,
             "tables": tables,
+            "is_finalized": is_finalized,
         })
 
     # If workflow itself is named and finalized
@@ -531,6 +534,7 @@ def workspace_db_status(slug: str):
             "workflow_id": wf["id"],
             "workspace_name": wf["name"],
             "tables": tables,
+            "is_finalized": True,
         })
 
     # Otherwise it is a draft that has not been saved yet -> LOCKED
@@ -541,6 +545,7 @@ def workspace_db_status(slug: str):
         "workflow_id": wf["id"],
         "workspace_name": None,
         "tables": [],
+        "is_finalized": False,
     })
 
 
