@@ -126,8 +126,6 @@ class GraphService:
     # ------------------------------------------------------------------ finalization
     def finalization_preview(self, user_id, wf, domain):
         latest = self.graphs.latest(user_id, wf["id"])
-        if not latest:
-            raise ConflictError("There is no customised graph yet. Collect your nuances and approve changes first (step 4).")
         number, state = self.working(user_id, wf, domain)
         validation = validate_graph(state, self.ref.core_keys(domain["slug"]))
         base = self._baseline(domain, wf)
@@ -171,7 +169,12 @@ class GraphService:
         if db_conn is not None:
             from .telemetry_service import TelemetryService
             gap_graph = TelemetryService(db_conn).build_gap_graph_for_workflow(user_id, domain, wf, state)
-        return {"version": self.version_meta(latest), "graph": serialize_state(state), "validation": validation,
+        
+        v_meta = self.version_meta(latest) if latest else {
+            "number": 0, "label": "KG0", "kind": "baseline", "status": "active",
+            "summary": "Baseline reference model", "created_at": wf.get("created_at"), "parent": None
+        }
+        return {"version": v_meta, "graph": serialize_state(state), "validation": validation,
                 "comparison": comparison, "versions": self.versions(user_id, wf), "history": history,
                 "finalized_version_number": wf["finalized_version_number"], "gap_graph": gap_graph}
 
@@ -188,8 +191,10 @@ class GraphService:
                                 details=prev["validation"]["warnings"])
         number = prev["version"]["number"]
         with self.db.transaction():
-            v = self.graphs.version(user_id, wf["id"], number)
-            self.graphs.mark_status(v["id"], "finalized")
+            if number > 0:
+                v = self.graphs.version(user_id, wf["id"], number)
+                if v:
+                    self.graphs.mark_status(v["id"], "finalized")
             self.wfs.on_finalized(wf, number)
         return number
 

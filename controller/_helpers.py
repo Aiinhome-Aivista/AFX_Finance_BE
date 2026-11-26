@@ -134,20 +134,26 @@ def read_domain_wf(slug, wf_id=None):
         except (TypeError, ValueError):
             raise ValidationError("Invalid workflow id.")
         wf = repo.get_by_id(parsed_id)
-        if not wf or int(wf["domain_id"]) != int(domain["id"]):
-            # # If the user passed a wf that belongs to another domain (e.g. from workspace or previous page),
-            # # gracefully resolve the workflow for this domain and workspace if possible
-            # wf_resolved = resolve_workspace_wf(db, g.user_id, domain, create_if_missing=False)
-            # if wf_resolved:
-            #     return domain, wf_resolved
-            raise NotFoundError("Published model workflow not found for this domain.")
-        if role == "data_analyst":
-            if not wf.get("finalized_version_number"):
-                raise ForbiddenError("Data Analysts can only access published models.")
+        if wf and int(wf["domain_id"]) == int(domain["id"]):
+            if role == "data_analyst":
+                if not wf.get("finalized_version_number"):
+                    raise ForbiddenError("Data Analysts can only access published models.")
+                return domain, wf
+            if int(wf["user_id"]) != int(g.user_id) and not wf.get("finalized_version_number"):
+                raise ForbiddenError("You do not have access to another user's draft workflow.")
             return domain, wf
-        if int(wf["user_id"]) != int(g.user_id) and not wf.get("finalized_version_number"):
-            raise ForbiddenError("You do not have access to another user's draft workflow.")
-        return domain, wf
+
+        # If the provided wf_id does not belong to this domain (e.g. carried over from another domain in workspace),
+        # gracefully resolve the workflow for this domain and workspace instead of crashing with 404!
+        wf_resolved = resolve_workspace_wf(db, g.user_id, domain, create_if_missing=(role == "data_architect"))
+        if wf_resolved:
+            return domain, wf_resolved
+        if role == "data_analyst":
+            pub = repo.latest_published_for_domain(domain["id"])
+            if pub:
+                return domain, pub
+            raise NotFoundError("No published model exists yet for this domain.")
+        raise NotFoundError("Published model workflow not found for this domain.")
 
     if role == "data_analyst":
         wf = repo.latest_published_for_domain(domain["id"])
@@ -155,7 +161,7 @@ def read_domain_wf(slug, wf_id=None):
             raise NotFoundError("No published model exists yet for this domain.")
         return domain, wf
 
-    wf = resolve_workspace_wf(db, g.user_id, domain, create_if_missing=False)
+    wf = resolve_workspace_wf(db, g.user_id, domain, create_if_missing=True)
     return domain, wf
 
 
