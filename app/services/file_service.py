@@ -94,6 +94,7 @@ class FileService:
         else:
             _POOL.submit(_process_in_thread, self.cfg, fid)
 
+        ingest_res = None
         if stage == "telemetry" and ext == "csv":
             try:
                 from app.services.workspace_db_service import WorkspaceDbService
@@ -104,7 +105,10 @@ class FileService:
             except Exception as ex:
                 log.warning("Workspace DB ingestion error for file %s: %s", original, ex)
 
-        return self.detail(user_id, fid)
+        out = self.detail(user_id, fid)
+        if ingest_res:
+            out["ingest_summary"] = ingest_res
+        return out
 
     # ------------------------------------------------------------------ read / delete
     def list(self, user_id, domain, stage=None, wf=None):
