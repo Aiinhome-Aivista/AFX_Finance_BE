@@ -13,6 +13,8 @@ from .extraction import extract
 from .graph_ops import OPS, clean_text, slugify, validate_sequence
 from .graph_service import GraphService
 from .guardrail_service import DomainGuardrailService
+from .model_eval_service import ModelEvalService  # [MODEL-EVAL | 2026-11-28 11:29 IST]
+from ..repositories.model_evals import ModelEvalRepository  # [MODEL-EVAL | 2026-11-28 11:29 IST]
 from .proposal_service import ProposalService
 from .reference_service import ReferenceService
 from .workflow_service import WorkflowService
@@ -438,11 +440,22 @@ class ChatService:
                             "rationale": f"Connect new entity '{nn}' to active domain context '{target_nk}'"
                         })
 
+            # [MODEL-EVAL | 2026-11-28 11:29 IST] Pre-commit Model Eval gate.
+            # Evaluates the architect's answer + every candidate op against the Finance/FMCG template profile BEFORE
+            # anything is written to the K graph. Failing ops (and ops depending on them) are held back; the rest
+            # continue through the unchanged validate_sequence -> create_version path below.
+            eval_report = self._model_eval(text, state, candidate_ops, domain, number + 1, "answer")
+            held_ids = {id(h) for h in eval_report["held_ops"]}
+            candidate_ops = eval_report["approved_ops"]
+
             accepted, rejected, _ = validate_sequence(state, candidate_ops, number + 1)
             ops = [{"op": a["op"], "payload": a["payload"], "rationale": a["rationale"]} for a in accepted]
             status = "skipped" if analysis["skipped"] else "answered"
-            self.convs.answer_question(q["id"], text, analysis.get("ops") or [], status)
-            if status == "answered":
+            # [MODEL-EVAL | 2026-11-28 11:29 IST] held ops are not stored as pending changes for this question,
+            # otherwise they would be re-staged (and re-held) on every following answer.
+            self.convs.answer_question(q["id"], text, [o for o in (analysis.get("ops") or []) if id(o) not in held_ids], status)
+            # [MODEL-EVAL | 2026-11-28 11:29 IST] a blocked input (e.g. personal data) is not kept as business experience
+            if status == "answered" and eval_report["verdict"] != "blocked":
                 self.convs.add_experience(user_id, wf["id"], q["id"], q["node_key"], q["topic"], text)
 
             # Apply accepted graph updates dynamically to the user's graph version
@@ -562,8 +575,14 @@ class ChatService:
             else:
                 ack = base_ack
 
+            # [MODEL-EVAL | 2026-11-28 11:29 IST] surface the gate outcome in the acknowledgement
+            eval_lines = ModelEvalService.ack_lines(eval_report)
+            if eval_lines:
+                ack = ack + "\n\n" + eval_lines
+
             self.convs.add_message(conv["id"], "assistant", ack, "ack",
                                    {"question_id": q["id"], "ops": len(ops), "engine": "rule-based" if fallback else self.engine,
+                                    "model_eval": ModelEvalService.compact(eval_report),  # [MODEL-EVAL | 2026-11-28 11:29 IST]
                                     **({"fallback_reason": fallback} if fallback and self.llm else {})})
 
             asked = False
@@ -591,7 +610,26 @@ class ChatService:
                             {"awaiting_session_decision": True}
                         )
 
-        return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
+        # [MODEL-EVAL | 2026-11-28 11:29 IST] persist the run (outside the transaction) and return the full report
+        self._record_model_eval(user_id, wf, domain, eval_report, "answer")
+        snap = self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
+        snap["model_eval"] = ModelEvalService.public(eval_report)
+        return snap
+
+    # ------------------------------------------------------------------ Model Eval helpers
+    # [MODEL-EVAL | 2026-11-28 11:29 IST] shared by answer() and chat_message() (evaluation runs inside the chatbox).
+    def _model_eval(self, text, state, candidate_ops, domain, version_number, source, template_key=None, use_llm=False):
+        try:
+            core = self.refs.core_keys(domain["slug"])
+        except Exception:  # noqa: BLE001 — core keys only refine the integrity check
+            core = set()
+        return ModelEvalService.evaluate(text, state, candidate_ops, domain=domain, template_key=template_key,
+                                         reference_core_keys=core, version_number=version_number, source=source,
+                                         llm=self.llm if use_llm else None)
+
+    def _record_model_eval(self, user_id, wf, domain, report, source):
+        if report:
+            ModelEvalRepository(self.db).record(user_id, wf["id"], domain.get("slug"), ModelEvalService.public(report), source)
 
     def decide_session(self, user_id, domain, action):
         """Handle user choice to continue exploring or proceed to review."""
@@ -820,7 +858,8 @@ class ChatService:
 
         answer, engine = None, "rule-based"
         updated_graph_data = None
-        has_graph_intent = any(w in text.lower() for w in ("add", "create", "new entity", "new node", "insert", "link", "connect", "delete", "remove", "rename", "update entity", "entity named", "node named"))
+        eval_report = None  # [MODEL-EVAL | 2026-11-28 11:29 IST] set only when the message proposes graph edits
+        has_graph_intent =any(w in text.lower() for w in ("add", "create", "new entity", "new node", "insert", "link", "connect", "delete", "remove", "rename", "update entity", "entity named", "node named"))
 
         if self.llm and has_graph_intent:
             try:
@@ -889,8 +928,17 @@ class ChatService:
                                         "rationale": f"Connect new entity '{nn}' to active graph context '{fallback_t}'"
                                     })
 
+                        # [MODEL-EVAL | 2026-11-28 11:29 IST] Pre-commit Model Eval gate for free-form chat edits.
+                        eval_report = self._model_eval(text, state, raw_ops, domain, number + 1, "message")
+                        raw_ops = eval_report["approved_ops"]
+
                         accepted, rejected, _ = validate_sequence(state, raw_ops, number + 1)
                         ops = [{"op": a["op"], "payload": a["payload"], "rationale": a["rationale"]} for a in accepted]
+                        # [MODEL-EVAL | 2026-11-28 11:29 IST] nothing approved -> still tell the architect why
+                        if not ops and eval_report["held_ops"]:
+                            answer = ((reply_text or "I could not apply that change.") + "\n\n"
+                                      + ModelEvalService.ack_lines(eval_report))
+                            engine = self.engine
                         if ops:
                             try:
                                 summary = f"Chat graph update: {text[:60]}"
@@ -918,6 +966,10 @@ class ChatService:
                                     answer = (reply_text or "Updated your knowledge graph.") + "\n\n" + "\n".join(extra_lines)
                                 else:
                                     answer = reply_text
+                                # [MODEL-EVAL | 2026-11-28 11:29 IST] append gate outcome (held changes / warnings)
+                                eval_lines = ModelEvalService.ack_lines(eval_report)
+                                if eval_lines:
+                                    answer = (answer or "Updated your knowledge graph.") + "\n\n" + eval_lines
                                 engine = self.engine
                             except Exception as ex:
                                 log.warning("Chat graph update execution failed: %s", ex)
@@ -939,10 +991,18 @@ class ChatService:
 
         with self.db.transaction():
             self.convs.add_message(conv["id"], "user", text, "answer", {"node_key": node_key} if node_key else None)
-            self.convs.add_message(conv["id"], "assistant", answer, "node_qa" if node_key else "system",
-                                   {"engine": engine, "node_key": node_key} if node_key else {"engine": engine})
+            # [MODEL-EVAL | 2026-11-28 11:29 IST] attach the compact gate result to the assistant message meta
+            meta = {"engine": engine, "node_key": node_key} if node_key else {"engine": engine}
+            if eval_report:
+                meta["model_eval"] = ModelEvalService.compact(eval_report)
+            self.convs.add_message(conv["id"], "assistant", answer, "node_qa" if node_key else "system", meta)
 
-        return self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
+        # [MODEL-EVAL | 2026-11-28 11:29 IST] persist run + expose the full report to the Business Input UI
+        self._record_model_eval(user_id, wf, domain, eval_report, "message")
+        snap = self.snapshot(user_id, wf, self.convs.get(user_id, wf["id"]), new_from_id=last_id, updated_graph=updated_graph_data)
+        if eval_report:
+            snap["model_eval"] = ModelEvalService.public(eval_report)
+        return snap
 
     # ------------------------------------------------------------------ node Q&A (grounded)
     def ask_node(self, user_id, domain, node_key, question):
